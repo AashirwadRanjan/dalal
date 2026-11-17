@@ -58,6 +58,51 @@ class Breakdown(unittest.TestCase):
         self.assertFalse(ind["breakdown"].iloc[-1])
 
 
+class Oscillators(unittest.TestCase):
+    def test_rsi_extremes(self):
+        self.assertAlmostEqual(state.indicators(frame(np.linspace(100, 200, 60)))["rsi14"].iloc[-1], 100.0)
+        self.assertAlmostEqual(state.indicators(frame(np.linspace(200, 100, 60)))["rsi14"].iloc[-1], 0.0)
+
+    def test_rsi_matches_wilder_loop(self):
+        rng = np.random.default_rng(11)
+        c = 100 + np.cumsum(rng.normal(0, 1, 80))
+        d = np.diff(c)
+        g, l = np.clip(d, 0, None), np.clip(-d, 0, None)
+        ag, al = g[:14].mean(), l[:14].mean()  # textbook seed = simple average of first 14
+        for i in range(14, len(d)):
+            ag, al = (ag * 13 + g[i]) / 14, (al * 13 + l[i]) / 14
+        ref = 100 - 100 / (1 + ag / al)
+        # pandas ewm seeds with the first value, not a 14-bar average; after 80 bars the gap is tiny
+        self.assertAlmostEqual(state.indicators(frame(c))["rsi14"].iloc[-1], ref, delta=1.0)
+
+    def test_macd_and_bands_on_flat_price(self):
+        ind = state.indicators(frame([100.0] * 60))
+        self.assertAlmostEqual(ind["macd"].iloc[-1], 0.0)
+        self.assertAlmostEqual(ind["macd_hist"].iloc[-1], 0.0)
+        self.assertAlmostEqual(ind["bb_up"].iloc[-1], 100.0)
+        self.assertAlmostEqual(ind["bb_low"].iloc[-1], 100.0)
+
+    def test_macd_positive_in_uptrend(self):
+        ind = state.indicators(frame(np.linspace(100, 200, 80)))
+        self.assertGreater(ind["macd"].iloc[-1], 0)
+
+
+class Levels(unittest.TestCase):
+    def test_nearest_confirmed_swing_levels(self):
+        # V-shape low at 90 (bar 20), peak at 130 (bar 45), then price at 110
+        c = np.r_[np.linspace(100, 90, 21), np.linspace(91, 130, 25), np.linspace(129, 110, 20)]
+        df = frame(c)
+        sup, res = state.levels(df)
+        self.assertAlmostEqual(sup, df["low"].iloc[20])
+        self.assertAlmostEqual(res, df["high"].iloc[45])
+
+    def test_unconfirmed_pivot_ignored(self):
+        # lowest bar is the second to last one: not confirmed yet (needs 5 bars after)
+        c = np.r_[np.linspace(100, 120, 40), [80.0, 85.0]]
+        sup, _ = state.levels(frame(c))
+        self.assertTrue(sup is None or sup > 80)
+
+
 class NoLookahead(unittest.TestCase):
     def test_prefix_values_unchanged_by_future_bars(self):
         rng = np.random.default_rng(3)

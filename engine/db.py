@@ -84,7 +84,11 @@ CREATE TABLE IF NOT EXISTS stock_state (
     rs_pct REAL,                   -- 6-month return percentile across the universe, 0-100
     atr REAL, trail_stop REAL, hi52 REAL, lo52 REAL, volx REAL,
     low20 REAL,                    -- prior 20-day low (the level a breakdown closes below)
-    breakdown INTEGER
+    breakdown INTEGER,
+    rsi14 REAL,                    -- RSI(14), Wilder smoothing
+    macd REAL, macd_signal REAL, macd_hist REAL,   -- MACD(12, 26, 9)
+    bb_up REAL, bb_mid REAL, bb_low REAL,          -- Bollinger bands (20, 2)
+    support REAL, resistance REAL  -- nearest confirmed swing low below / swing high above the close
 );
 
 -- One market brief per trading day (engine/summary.py)
@@ -104,7 +108,7 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 
 
 # Derived tables are rebuilt every run, so an outdated layout is simply dropped and recreated.
-DERIVED_COLUMNS = {"signals": "trend", "trades": "trend", "stock_state": "low20"}
+DERIVED_COLUMNS = {"signals": "trend", "trades": "trend", "stock_state": "resistance"}
 
 
 def connect() -> sqlite3.Connection:

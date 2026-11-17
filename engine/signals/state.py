@@ -6,6 +6,8 @@ portfolio suggestions. Every column at bar t uses only bars <= t.
 import numpy as np
 import pandas as pd
 
+from engine.signals.patterns import PIVOT_N, SUPPORT_WINDOW, _pivots
+
 TRENDS = ("up", "sideways", "down", "unknown")
 
 
@@ -40,4 +42,44 @@ def indicators(df: pd.DataFrame) -> pd.DataFrame:
     low20 = l.shift(1).rolling(20).min()
     out["low20"] = low20
     out["breakdown"] = (c < low20) & (c.shift(1) >= low20.shift(1)) & (out["volx"] >= 1.5)
+
+    # RSI(14), Wilder smoothing
+    delta = c.diff()
+    gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    loss = (-delta.clip(upper=0)).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()
+    rs = gain / loss
+    out["rsi14"] = np.where(loss == 0, 100.0, 100 - 100 / (1 + rs))
+    out.loc[gain.isna(), "rsi14"] = np.nan
+
+    # MACD(12, 26, 9)
+    ema12 = c.ewm(span=12, adjust=False, min_periods=12).mean()
+    ema26 = c.ewm(span=26, adjust=False, min_periods=26).mean()
+    out["macd"] = ema12 - ema26
+    out["macd_signal"] = out["macd"].ewm(span=9, adjust=False, min_periods=9).mean()
+    out["macd_hist"] = out["macd"] - out["macd_signal"]
+
+    # Bollinger bands (20, 2 standard deviations)
+    mid = c.rolling(20).mean()
+    sd = c.rolling(20).std(ddof=0)
+    out["bb_mid"], out["bb_up"], out["bb_low"] = mid, mid + 2 * sd, mid - 2 * sd
     return out
+
+
+def levels(df: pd.DataFrame) -> tuple[float | None, float | None]:
+    """Nearest confirmed swing support below and resistance above the last close.
+
+    Swing lows/highs are confirmed PIVOT_N bars after the fact (same rule as the pattern engine)
+    and looked up within the last SUPPORT_WINDOW bars.
+    """
+    n = len(df)
+    if n < 2 * PIVOT_N + 1:
+        return None, None
+    lo, hi, c = df["low"].to_numpy(float), df["high"].to_numpy(float), float(df["close"].iloc[-1])
+    t = n - 1
+    lo_i = _pivots(lo, "low")
+    hi_i = _pivots(hi, "high")
+    lo_i = lo_i[(lo_i >= t - SUPPORT_WINDOW) & (lo_i <= t - PIVOT_N)]
+    hi_i = hi_i[(hi_i >= t - SUPPORT_WINDOW) & (hi_i <= t - PIVOT_N)]
+    sup = lo[lo_i][lo[lo_i] < c]
+    res = hi[hi_i][hi[hi_i] > c]
+    return (float(sup.max()) if sup.size else None, float(res.min()) if res.size else None)

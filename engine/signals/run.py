@@ -11,7 +11,8 @@ import pandas as pd
 from engine.signals import backtest, patterns, state
 
 STATE_COLS = ["date", "close", "chg_1d", "dma50", "dma200", "trend", "ret_1m", "ret_3m", "ret_6m",
-              "rs_pct", "atr", "trail_stop", "hi52", "lo52", "volx", "low20", "breakdown"]
+              "rs_pct", "atr", "trail_stop", "hi52", "lo52", "volx", "low20", "breakdown",
+              "rsi14", "macd", "macd_signal", "macd_hist", "bb_up", "bb_mid", "bb_low", "support", "resistance"]
 
 
 def _clean(x):
@@ -35,6 +36,7 @@ def run(conn) -> str:
         ind = state.indicators(df)
         last = ind.iloc[-1].copy()
         last["date"], last["symbol"] = ind.index[-1], sym
+        last["support"], last["resistance"] = state.levels(df)
         latest.append(last)
 
         sigs = patterns.detect(df)

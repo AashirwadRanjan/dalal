@@ -1,10 +1,18 @@
 "use client";
 
-import { CandlestickSeries, ColorType, HistogramSeries, createChart } from "lightweight-charts";
+import {
+  CandlestickSeries, ColorType, HistogramSeries, LineStyle, createChart, createSeriesMarkers,
+} from "lightweight-charts";
 import { useEffect, useRef } from "react";
 import type { Candle } from "@/lib/db";
 
-export default function Candles({ candles }: { candles: Candle[] }) {
+export type Marker = { date: string; label: string };
+export type Levels = { entry: number; stop: number; target: number };
+
+/** Daily candles + volume. Optional: pattern markers under signal bars, and entry/stop/target lines. */
+export default function Candles({
+  candles, markers = [], levels,
+}: { candles: Candle[]; markers?: Marker[]; levels?: Levels }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,9 +42,22 @@ export default function Candles({ candles }: { candles: Candle[] }) {
       candles.map((c) => ({ time: c.date, value: c.volume ?? 0, color: c.close >= c.open ? up + "88" : down + "88" }))
     );
 
+    createSeriesMarkers(
+      price,
+      markers.map((m) => ({ time: m.date, position: "belowBar" as const, shape: "arrowUp" as const, color: v("--link"), text: m.label }))
+    );
+    if (levels) {
+      const ink = v("--ink");
+      const line = (p: number, color: string, title: string, style = LineStyle.Dashed) =>
+        price.createPriceLine({ price: p, color, title, lineWidth: 1, lineStyle: style, axisLabelVisible: true });
+      line(levels.entry, ink, "Entry", LineStyle.Dotted);
+      line(levels.stop, down, "Stop");
+      line(levels.target, up, "Target");
+    }
+
     chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [candles]);
+  }, [candles, markers, levels]);
 
   return <div ref={ref} className="chart" role="img" aria-label="Daily candlestick chart with volume" />;
 }

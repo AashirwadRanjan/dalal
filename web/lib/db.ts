@@ -129,3 +129,217 @@ export function getFreshness(): Freshness {
     }) ?? { latestPriceDate: null, failedSteps: [] }
   );
 }
+
+// ---- Phase 2: pattern engine + backtest (written by engine/signals) ----
+
+type StatsCore = {
+  trades: number;
+  win_rate?: number;
+  avg_r?: number;
+  avg_ret_pct?: number;
+  profit_factor?: number | null;
+  avg_bars?: number;
+  max_dd_r?: number;
+  total_r?: number;
+};
+
+export type PatternStats = {
+  pattern: string;
+  by_trend?: Record<string, StatsCore>;
+  trades: number;
+  win_rate?: number;
+  avg_r?: number;
+  avg_ret_pct?: number;
+  profit_factor?: number | null;
+  avg_bars?: number;
+  max_dd_r?: number;
+  total_r?: number;
+};
+
+export type Setup = {
+  symbol: string;
+  name: string;
+  sector: string;
+  date: string;
+  pattern: string;
+  trend: string | null;
+  entry: number;
+  stop: number;
+  target: number;
+  detail: string;
+};
+
+export type TradeRow = {
+  symbol: string;
+  pattern: string;
+  signal_date: string;
+  entry_date: string;
+  entry: number;
+  stop: number;
+  target: number;
+  exit_date: string;
+  exit: number;
+  outcome: "target" | "stop" | "time" | "open";
+  r: number;
+  ret_pct: number;
+  bars: number;
+};
+
+export type EquityPoint = { pattern: string; date: string; r: number };
+
+const hasTable = (db: Database.Database, name: string) =>
+  !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+
+export function getPatternStats(): PatternStats[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "pattern_stats")) return [];
+      const rows = db.prepare("SELECT pattern, stats FROM pattern_stats").all() as { pattern: string; stats: string }[];
+      return rows.map((r) => ({ pattern: r.pattern, ...JSON.parse(r.stats) }) as PatternStats);
+    }) ?? []
+  );
+}
+
+/** Signals fired on the latest price date: tomorrow's candidates. */
+export function getSetups(): Setup[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "signals")) return [];
+      return db
+        .prepare(
+          `SELECT s.symbol, i.name, i.sector, s.date, s.pattern, s.trend, s.entry, s.stop, s.target, s.detail
+           FROM signals s JOIN instruments i ON i.symbol = s.symbol
+           WHERE s.date = (SELECT MAX(date) FROM prices_daily)
+           ORDER BY s.pattern, s.symbol`
+        )
+        .all() as Setup[];
+    }) ?? []
+  );
+}
+
+export function getTrades(opts: { symbol?: string; limit?: number } = {}): TradeRow[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "trades")) return [];
+      const where = opts.symbol ? "WHERE symbol = ?" : "WHERE outcome != 'open'";
+      const args: (string | number)[] = opts.symbol ? [opts.symbol] : [];
+      return db
+        .prepare(
+          `SELECT symbol, pattern, signal_date, entry_date, entry, stop, target, exit_date, exit, outcome, r, ret_pct, bars
+           FROM trades ${where} ORDER BY ${opts.symbol ? "signal_date" : "exit_date"} DESC, symbol LIMIT ?`
+        )
+        .all(...args, opts.limit ?? 100) as TradeRow[];
+    }) ?? []
+  );
+}
+
+/** Closed-trade R summed per pattern per exit day, ascending. The chart accumulates it. */
+export function getEquity(): EquityPoint[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "trades")) return [];
+      return db
+        .prepare(
+          `SELECT pattern, exit_date AS date, SUM(r) AS r FROM trades
+           WHERE outcome != 'open' GROUP BY pattern, exit_date ORDER BY exit_date`
+        )
+        .all() as EquityPoint[];
+    }) ?? []
+  );
+}
+
+export function getStockSignals(symbol: string): Setup[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "signals")) return [];
+      return db
+        .prepare(
+          `SELECT s.symbol, '' AS name, '' AS sector, s.date, s.pattern, s.trend, s.entry, s.stop, s.target, s.detail
+           FROM signals s WHERE s.symbol = ? ORDER BY s.date`
+        )
+        .all(symbol) as Setup[];
+    }) ?? []
+  );
+}
+
+// ---- Daily brief, stock state (engine/summary.py, engine/signals/state.py) ----
+
+export type Mover = { symbol: string; name: string; chg: number; volx: number | null };
+export type Headline = { tone: "up" | "down" | "flat"; text: string };
+export type Brief = {
+  date: string;
+  headlines: Headline[];
+  indices: { name: string; close: number; chg: number }[];
+  global: { name: string; close: number; chg: number; date: string }[];
+  breadth: {
+    advances: number; declines: number; unchanged: number; total: number;
+    pct_above_50dma: number; pct_above_200dma: number;
+    trend: { up: number; sideways: number; down: number };
+  };
+  flows: { date: string; fii_net: number | null; dii_net: number | null }[];
+  sectors_top: { sector: string; chg: number; n: number }[];
+  sectors_bottom: { sector: string; chg: number; n: number }[];
+  gainers: Mover[];
+  losers: Mover[];
+  volume: Mover[];
+  setups: Record<string, number>;
+  breakdowns: number;
+};
+
+export function getBrief(date?: string): Brief | null {
+  return withDb((db) => {
+    if (!hasTable(db, "daily_brief")) return null;
+    const row = (date
+      ? db.prepare("SELECT data FROM daily_brief WHERE date = ?").get(date)
+      : db.prepare("SELECT data FROM daily_brief ORDER BY date DESC LIMIT 1").get()) as { data: string } | undefined;
+    return row ? (JSON.parse(row.data) as Brief) : null;
+  });
+}
+
+export function getBriefDates(limit = 30): string[] {
+  return (
+    withDb((db) =>
+      hasTable(db, "daily_brief")
+        ? (db.prepare("SELECT date FROM daily_brief ORDER BY date DESC LIMIT ?").all(limit) as { date: string }[]).map((r) => r.date)
+        : []
+    ) ?? []
+  );
+}
+
+export type StockState = {
+  symbol: string;
+  name: string;
+  sector: string;
+  date: string;
+  close: number;
+  chg_1d: number | null;
+  dma50: number | null;
+  dma200: number | null;
+  trend: "up" | "sideways" | "down" | "unknown";
+  ret_1m: number | null;
+  ret_3m: number | null;
+  ret_6m: number | null;
+  rs_pct: number | null;
+  atr: number | null;
+  trail_stop: number | null;
+  hi52: number | null;
+  lo52: number | null;
+  volx: number | null;
+  breakdown: number;
+};
+
+export function getStates(): StockState[] {
+  return (
+    withDb((db) =>
+      hasTable(db, "stock_state")
+        ? (db
+            .prepare("SELECT s.*, i.name, i.sector FROM stock_state s JOIN instruments i USING (symbol)")
+            .all() as StockState[])
+        : []
+    ) ?? []
+  );
+}
+
+export function getInstruments(): { symbol: string; name: string }[] {
+  return withDb((db) => db.prepare("SELECT symbol, name FROM instruments ORDER BY symbol").all() as { symbol: string; name: string }[]) ?? [];
+}

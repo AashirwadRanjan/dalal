@@ -1,7 +1,11 @@
+import BriefView from "@/components/BriefView";
 import FlowBars from "@/components/FlowBars";
+import Nav from "@/components/Nav";
+import RefreshButton from "@/components/RefreshButton";
 import Screener from "@/components/Screener";
+import Setups from "@/components/Setups";
 import { change, crore, inr, pct, tone } from "@/lib/format";
-import { getFlows, getFreshness, getScreener, getSeries, hasDb } from "@/lib/db";
+import { getBrief, getFlows, getFreshness, getPatternStats, getScreener, getSeries, getSetups, hasDb } from "@/lib/db";
 
 export const dynamic = "force-dynamic"; // always read the latest DB
 
@@ -25,18 +29,21 @@ export default function Home() {
   const stocks = getScreener();
   const fresh = getFreshness();
   const lastFlow = flows[flows.length - 1];
+  const brief = getBrief();
 
   return (
     <main className="wrap">
-      <header className="top">
-        <span className="brand">Dalal</span>
+      <Nav>
         <span className="asof">
           Prices as of {fresh.latestPriceDate ?? "–"}
           {fresh.failedSteps.length > 0 && (
             <span className="warn"> · last run failed: {fresh.failedSteps.join(", ")}</span>
           )}
+          {" "}<RefreshButton />
         </span>
-      </header>
+      </Nav>
+
+      {brief && <BriefView brief={brief} />}
 
       <div className="strip">
         {india.map((s) => {
@@ -92,6 +99,8 @@ export default function Home() {
           </ul>
         </section>
       </div>
+
+      <Setups setups={getSetups()} stats={getPatternStats()} />
 
       <Screener rows={stocks} />
     </main>

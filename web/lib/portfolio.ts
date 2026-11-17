@@ -20,6 +20,11 @@ function withPf<T>(fn: (db: Database.Database) => T): T {
       avg_price  REAL NOT NULL CHECK (avg_price > 0),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS watchlist (
+      symbol   TEXT PRIMARY KEY,
+      note     TEXT,
+      added_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`);
     return fn(db);
   } finally {
     db.close();
@@ -37,6 +42,21 @@ export const upsertHolding = (symbol: string, qty: number, avg: number) =>
          ON CONFLICT (symbol) DO UPDATE SET qty = excluded.qty, avg_price = excluded.avg_price, updated_at = datetime('now')`
       )
       .run(symbol, qty, avg)
+  );
+
+export type WatchItem = { symbol: string; note: string | null; added_at: string };
+
+export const listWatchlist = () =>
+  withPf((db) => db.prepare("SELECT symbol, note, added_at FROM watchlist ORDER BY added_at DESC").all() as WatchItem[]);
+
+export const isWatched = (symbol: string) =>
+  withPf((db) => !!db.prepare("SELECT 1 FROM watchlist WHERE symbol = ?").get(symbol));
+
+export const setWatched = (symbol: string, on: boolean) =>
+  withPf((db) =>
+    on
+      ? db.prepare("INSERT OR IGNORE INTO watchlist (symbol) VALUES (?)").run(symbol)
+      : db.prepare("DELETE FROM watchlist WHERE symbol = ?").run(symbol)
   );
 
 export const deleteHolding = (symbol: string) =>

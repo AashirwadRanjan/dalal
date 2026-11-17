@@ -97,6 +97,38 @@ CREATE TABLE IF NOT EXISTS daily_brief (
     data TEXT NOT NULL             -- JSON
 );
 
+-- News and events (engine/news). Empty until a source is configured; the UI then says "Not tracked".
+CREATE TABLE IF NOT EXISTS news_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol       TEXT NOT NULL,
+    published_at TEXT NOT NULL,    -- ISO timestamp, UTC
+    source       TEXT NOT NULL,    -- publisher or feed name
+    headline     TEXT NOT NULL,
+    url          TEXT NOT NULL UNIQUE,
+    tone         TEXT,             -- positive | neutral | negative (LLM), NULL until classified
+    impact       TEXT              -- one plain-English line on why it matters (LLM); never a price prediction
+);
+CREATE INDEX IF NOT EXISTS news_symbol ON news_items (symbol, published_at);
+
+CREATE TABLE IF NOT EXISTS corporate_events (
+    symbol TEXT NOT NULL,
+    kind   TEXT NOT NULL,          -- results | board_meeting | dividend_record | agm
+    date   TEXT NOT NULL,          -- YYYY-MM-DD
+    source TEXT NOT NULL,
+    detail TEXT,
+    PRIMARY KEY (symbol, kind, date)
+);
+
+CREATE TABLE IF NOT EXISTS buzz (
+    symbol TEXT NOT NULL,
+    as_of  TEXT NOT NULL,          -- ISO timestamp, UTC
+    level  TEXT NOT NULL,          -- not_trending | top100 | top50 | very_trendy
+    rank   INTEGER,                -- position in India's trend list, if known
+    topic  TEXT,
+    source TEXT NOT NULL,
+    PRIMARY KEY (symbol, as_of)
+);
+
 CREATE TABLE IF NOT EXISTS ingest_log (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,
     step   TEXT NOT NULL,

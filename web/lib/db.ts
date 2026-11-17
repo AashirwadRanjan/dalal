@@ -284,6 +284,15 @@ export type StockState = {
   volx: number | null;
   low20: number | null;
   breakdown: number;
+  rsi14: number | null;
+  macd: number | null;
+  macd_signal: number | null;
+  macd_hist: number | null;
+  bb_up: number | null;
+  bb_mid: number | null;
+  bb_low: number | null;
+  support: number | null;
+  resistance: number | null;
 };
 
 export function getStates(): StockState[] {
@@ -361,4 +370,48 @@ export function getHealthFacts(): HealthFacts | null {
       briefDate: hasTable(db, "daily_brief") ? one<{ d: string | null }>("SELECT MAX(date) d FROM daily_brief").d : null,
     };
   });
+}
+
+export function getState(symbol: string): StockState | null {
+  return (
+    withDb((db) =>
+      hasTable(db, "stock_state")
+        ? ((db.prepare("SELECT s.*, i.name, i.sector FROM stock_state s JOIN instruments i USING (symbol) WHERE s.symbol = ?").get(symbol) as StockState | undefined) ?? null)
+        : null
+    ) ?? null
+  );
+}
+
+// ---- News and events (engine/news). Each feature is "tracked" only once its engine step has run. ----
+
+export type NewsItem = { published_at: string; source: string; headline: string; url: string; tone: "positive" | "neutral" | "negative" | null; impact: string | null };
+export type CorpEvent = { kind: string; date: string; source: string; detail: string | null };
+export type Buzz = { as_of: string; level: "not_trending" | "top100" | "top50" | "very_trendy"; rank: number | null; topic: string | null; source: string };
+export type NewsBundle = {
+  tracked: { news: boolean; events: boolean; buzz: boolean };
+  news: NewsItem[];
+  events: CorpEvent[];
+  buzz: Buzz | null;
+};
+
+export function getNewsBundle(symbol: string): NewsBundle {
+  const empty: NewsBundle = { tracked: { news: false, events: false, buzz: false }, news: [], events: [], buzz: null };
+  return (
+    withDb((db) => {
+      const ran = (step: string) => !!db.prepare("SELECT 1 FROM ingest_log WHERE step = ? AND status = 'ok' LIMIT 1").get(step);
+      const has = (t: string) => hasTable(db, t);
+      return {
+        tracked: { news: ran("news"), events: ran("events"), buzz: ran("buzz") },
+        news: has("news_items")
+          ? (db.prepare("SELECT published_at, source, headline, url, tone, impact FROM news_items WHERE symbol = ? ORDER BY published_at DESC LIMIT 30").all(symbol) as NewsItem[])
+          : [],
+        events: has("corporate_events")
+          ? (db.prepare("SELECT kind, date, source, detail FROM corporate_events WHERE symbol = ? AND date >= date('now') ORDER BY date LIMIT 10").all(symbol) as CorpEvent[])
+          : [],
+        buzz: has("buzz")
+          ? ((db.prepare("SELECT as_of, level, rank, topic, source FROM buzz WHERE symbol = ? ORDER BY as_of DESC LIMIT 1").get(symbol) as Buzz | undefined) ?? null)
+          : null,
+      };
+    }) ?? empty
+  );
 }

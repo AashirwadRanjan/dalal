@@ -1,6 +1,7 @@
 import Link from "next/link";
 import BriefLines from "@/components/BriefLines";
 import RealityCheck from "@/components/RealityCheck";
+import WatchlistSection from "@/components/WatchlistSection";
 import { Bar, ChangeFigure, DashedNotice, TablePanel } from "@/components/ui";
 import { getBrief, getFlows, getSeries, getSetups, getStates, hasDb, type Brief, type FlowRow, type SeriesRow } from "@/lib/db";
 import { PATTERN_LABEL, PATTERN_ORDER, PATTERN_PLURAL, change, dayLong, dayShort, inr, plural, signed, toneOf } from "@/lib/format";
@@ -110,6 +111,8 @@ export default function Today() {
           </>
         )}
       </section>
+
+      <WatchlistSection />
 
       {/* Flows + breadth */}
       <section className="sec cols">

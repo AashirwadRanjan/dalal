@@ -39,6 +39,8 @@ export async function importHoldings(_: FormState, fd: FormData): Promise<FormSt
 }
 
 export async function removeHolding(fd: FormData) {
-  deleteHolding(String(fd.get("symbol")));
+  const symbol = normSymbol(String(fd.get("symbol") ?? ""));
+  if (!/^[A-Z0-9&-]{1,20}$/.test(symbol)) return;
+  deleteHolding(symbol);
   revalidatePath("/portfolio");
 }

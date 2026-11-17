@@ -61,10 +61,15 @@ Each step logs to the `ingest_log` table. If one fails, the dashboard header sho
 ## Tests
 
 ```bash
-.venv/bin/python -m unittest discover -s engine/tests -t .
+scripts/test.sh            # engine tests + web typecheck
+scripts/test.sh --build    # also the production build
 ```
 
-Covers the trade simulator (fills, gaps, costs, time exits) and a no-lookahead check on the detectors.
+Covers the trade simulator (fills, gaps, costs, time exits), no-lookahead checks on the detectors and
+indicators, trend/trailing-stop/breakdown rules, and the daily brief (breadth, headlines, one row per day).
+
+The web server listens on 127.0.0.1 only. `/api/refresh` accepts same-origin requests only and reuses the
+last result for 60 seconds.
 
 ## Next phases
 

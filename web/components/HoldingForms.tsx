@@ -22,8 +22,8 @@ export default function HoldingForms({ symbols }: { symbols: { symbol: string; n
         <h2 className="panel-title" id="add-h">Add a holding</h2>
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <label className="field">
-            Stock symbol
-            <input name="symbol" list="pf-symbols" placeholder="For example RELIANCE" required autoComplete="off" />
+            Stock symbol or company name
+            <input name="symbol" list="pf-symbols" placeholder="For example RELIANCE or Reliance Industries" required autoComplete="off" />
           </label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
             <label className="field" style={{ flex: "1 1 140px" }}>
@@ -50,8 +50,8 @@ export default function HoldingForms({ symbols }: { symbols: { symbol: string; n
       <form action={imp} className="panel panel-pad" aria-labelledby="imp-h">
         <h2 className="panel-title" id="imp-h" style={{ marginBottom: 6 }}>Import from a paste</h2>
         <p style={{ margin: "0 0 16px", fontSize: 14, color: "var(--text-2)" }}>
-          One holding per line: symbol, quantity, average cost. A broker holdings export (Zerodha, Groww) also works.
-          Existing holdings are updated.
+          One holding per line: symbol or company name, quantity, average cost. A broker holdings export (Zerodha,
+          Groww) also works; names like “SUN PHARMA. INDS.” are matched to their NSE symbol. Existing holdings are updated.
         </p>
         <label className="field">
           <span className="sr-only">Holdings to import</span>

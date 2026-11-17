@@ -75,7 +75,7 @@ const num = (s: string | undefined) => {
  * Parse pasted holdings. Accepts a broker export with a header row (Zerodha, Groww, Upstox:
  * columns like "Instrument", "Qty.", "Avg. cost") or bare lines "SYMBOL, qty, avg price".
  */
-export function parseHoldings(text: string): { rows: { symbol: string; qty: number; avg: number }[]; errors: string[] } {
+export function parseHoldings(text: string): { rows: { symbol: string; raw: string; qty: number; avg: number }[]; errors: string[] } {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const split = (l: string) => l.split(/\t|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((c) => c.trim().replace(/^"|"$/g, ""));
   let cols = { sym: 0, qty: 1, avg: 2 };
@@ -89,14 +89,15 @@ export function parseHoldings(text: string): { rows: { symbol: string; qty: numb
       start = 1;
     }
   }
-  const rows: { symbol: string; qty: number; avg: number }[] = [];
+  const rows: { symbol: string; raw: string; qty: number; avg: number }[] = [];
   const errors: string[] = [];
   for (const [i, line] of lines.slice(start).entries()) {
     const c = split(line);
-    const symbol = normSymbol(c[cols.sym] ?? "");
+    const raw = (c[cols.sym] ?? "").trim();
+    const symbol = normSymbol(raw);
     const qty = num(c[cols.qty]), avg = num(c[cols.avg]);
     if (!symbol || !(qty > 0) || !(avg > 0)) errors.push(`Line ${i + start + 1}: couldn't read "${line}"`);
-    else rows.push({ symbol, qty, avg });
+    else rows.push({ symbol, raw, qty, avg });
   }
   return { rows, errors };
 }

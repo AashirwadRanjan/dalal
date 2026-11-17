@@ -2,38 +2,50 @@
 
 import { revalidatePath } from "next/cache";
 import { getInstruments } from "@/lib/db";
+import { resolveStock } from "@/lib/match";
 import { deleteHolding, normSymbol, parseHoldings, upsertHolding } from "@/lib/portfolio";
 
 export type FormState = { ok?: string; error?: string };
 
 const known = () => new Set(getInstruments().map((i) => i.symbol));
 
+const whyNot = (raw: string, r: ReturnType<typeof resolveStock>) =>
+  r.ok ? "" : r.reason === "ambiguous" ? `${raw} (could be ${r.candidates.join(", ")}; use the symbol)` : raw;
+
 export async function addHolding(_: FormState, fd: FormData): Promise<FormState> {
-  const symbol = normSymbol(String(fd.get("symbol") ?? ""));
+  const raw = String(fd.get("symbol") ?? "").trim();
   const qty = Number(fd.get("qty")), avg = Number(fd.get("avg"));
-  if (!symbol) return { error: "Enter a stock symbol." };
-  if (!known().has(symbol)) return { error: `${symbol} isn't in the Nifty 500 list, so there's no data to analyse it.` };
+  if (!raw) return { error: "Enter a stock symbol or company name." };
+  const r = resolveStock(raw, getInstruments());
+  if (!r.ok)
+    return {
+      error: r.reason === "ambiguous"
+        ? `“${raw}” could be ${r.candidates.join(", ")}. Enter the NSE symbol.`
+        : `“${raw}” isn't in the Nifty 500 list, so there's no data to analyse it.`,
+    };
+  const symbol = r.symbol;
   if (!(qty > 0)) return { error: "Quantity must be more than 0." };
   if (!(avg > 0)) return { error: "Average price must be more than 0." };
   upsertHolding(symbol, qty, avg);
   revalidatePath("/portfolio");
-  return { ok: `Saved ${symbol}: ${qty} at ₹${avg}.` };
+  return { ok: `Saved ${symbol}${r.how === "name" ? ` (matched from “${raw}”)` : ""}: ${qty} at ₹${avg}.` };
 }
 
 export async function importHoldings(_: FormState, fd: FormData): Promise<FormState> {
   const { rows, errors } = parseHoldings(String(fd.get("csv") ?? ""));
   if (!rows.length && !errors.length) return { error: "Paste at least one line." };
-  const k = known();
-  const unknown = rows.filter((r) => !k.has(r.symbol)).map((r) => r.symbol);
-  const good = rows.filter((r) => k.has(r.symbol));
-  for (const r of good) upsertHolding(r.symbol, r.qty, r.avg);
+  const list = getInstruments();
+  const resolved = rows.map((row) => ({ row, r: resolveStock(row.raw, list) }));
+  const good = resolved.filter((x) => x.r.ok) as { row: (typeof rows)[number]; r: { ok: true; symbol: string; how: "symbol" | "name" } }[];
+  const bad = resolved.filter((x) => !x.r.ok).map((x) => whyNot(x.row.raw, x.r));
+  for (const { row, r } of good) upsertHolding(r.symbol, row.qty, row.avg);
   revalidatePath("/portfolio");
-  const problems = [
-    ...errors,
-    ...(unknown.length ? [`Not in the Nifty 500 list, skipped: ${unknown.join(", ")}`] : []),
-  ];
+  const byName = good.filter((x) => x.r.how === "name").map((x) => `${x.row.raw} → ${x.r.symbol}`);
+  const problems = [...errors, ...(bad.length ? [`Not found in the Nifty 500 list, skipped: ${bad.join(", ")}`] : [])];
   return {
-    ok: good.length ? `Imported ${good.length} holding${good.length > 1 ? "s" : ""}.` : undefined,
+    ok: good.length
+      ? `Imported ${good.length} holding${good.length > 1 ? "s" : ""}.${byName.length ? ` Matched by company name: ${byName.join(", ")}.` : ""}`
+      : undefined,
     error: problems.length ? problems.join(" · ") : undefined,
   };
 }

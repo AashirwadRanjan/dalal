@@ -10,12 +10,13 @@ import traceback
 
 from engine import db
 from engine.ingest import fii_dii, instruments, market_series, prices
+from engine.signals import run as signals
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="fetch 2 years instead of ~10 days")
-    ap.add_argument("--only", choices=["instruments", "prices", "market_series", "fii_dii"])
+    ap.add_argument("--only", choices=["instruments", "prices", "market_series", "fii_dii", "signals"])
     args = ap.parse_args()
     period = "2y" if args.backfill else "10d"
 
@@ -25,6 +26,7 @@ def main() -> int:
         "prices": lambda: prices.run(conn, period),
         "market_series": lambda: market_series.run(conn, period),
         "fii_dii": lambda: fii_dii.run(conn),
+        "signals": lambda: signals.run(conn),  # after prices: reads prices_daily
     }
     if args.only:
         steps = {args.only: steps[args.only]}

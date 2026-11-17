@@ -42,6 +42,56 @@ CREATE TABLE IF NOT EXISTS fii_dii_daily (
     dii_buy REAL, dii_sell REAL, dii_net REAL
 );
 
+-- Pattern engine output; rebuilt from prices_daily on every run (engine/signals)
+CREATE TABLE IF NOT EXISTS signals (
+    symbol  TEXT NOT NULL,
+    date    TEXT NOT NULL,         -- signal bar; trade would enter next open
+    pattern TEXT NOT NULL,         -- breakout | volume_spike | support_bounce
+    trend   TEXT,                  -- stock's trend at the signal: up | sideways | down | unknown
+    entry   REAL,                  -- reference: signal bar close
+    stop    REAL,
+    target  REAL,
+    detail  TEXT,
+    PRIMARY KEY (symbol, date, pattern)
+);
+
+CREATE TABLE IF NOT EXISTS trades (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol      TEXT NOT NULL,
+    pattern     TEXT NOT NULL,
+    signal_date TEXT NOT NULL,
+    trend       TEXT,
+    entry_date  TEXT, entry REAL, stop REAL, target REAL,
+    exit_date   TEXT, exit REAL,
+    outcome     TEXT,              -- target | stop | time | open
+    r           REAL,              -- result in multiples of initial risk, after costs
+    ret_pct     REAL,
+    bars        INTEGER
+);
+CREATE INDEX IF NOT EXISTS trades_symbol ON trades (symbol);
+
+CREATE TABLE IF NOT EXISTS pattern_stats (
+    pattern TEXT PRIMARY KEY,
+    stats   TEXT NOT NULL          -- JSON: backtest.stats() plus "by_trend": {trend: stats}
+);
+
+-- Latest trend/momentum snapshot per stock (engine/signals/state.py)
+CREATE TABLE IF NOT EXISTS stock_state (
+    symbol TEXT PRIMARY KEY,
+    date TEXT, close REAL, chg_1d REAL,
+    dma50 REAL, dma200 REAL, trend TEXT,
+    ret_1m REAL, ret_3m REAL, ret_6m REAL,
+    rs_pct REAL,                   -- 6-month return percentile across the universe, 0-100
+    atr REAL, trail_stop REAL, hi52 REAL, lo52 REAL, volx REAL,
+    breakdown INTEGER
+);
+
+-- One market brief per trading day (engine/summary.py)
+CREATE TABLE IF NOT EXISTS daily_brief (
+    date TEXT PRIMARY KEY,
+    data TEXT NOT NULL             -- JSON
+);
+
 CREATE TABLE IF NOT EXISTS ingest_log (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,
     step   TEXT NOT NULL,
@@ -52,8 +102,16 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 """
 
 
+# Derived tables are rebuilt every run, so an outdated layout is simply dropped and recreated.
+DERIVED_COLUMNS = {"signals": "trend", "trades": "trend"}
+
+
 def connect() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
+    for table, col in DERIVED_COLUMNS.items():
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if cols and col not in cols:
+            conn.execute(f"DROP TABLE {table}")
     conn.executescript(SCHEMA)
     return conn

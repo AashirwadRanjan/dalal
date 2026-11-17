@@ -105,3 +105,33 @@ def stats(trades: list[Trade]) -> dict:
         "max_dd_r": round(float(drawdown), 1),
         "total_r": round(float(curve[-1]), 1),
     }
+
+
+# ---- rigor: walk-forward split and per-year results ------------------------------------------------------
+
+TRAIN_END = "2025-12-31"   # train: entries up to this date; test: entries after it
+EDGE_R = 0.05              # a pattern "passes" training if it averages at least this per trade...
+MIN_TRADES = 100           # ...over at least this many closed trades (same rule as the web app's lib/edge.ts)
+
+
+def walk_forward(trades: list[Trade], train_end: str = TRAIN_END) -> dict:
+    """Judge the pattern on the training window only, then report how it did afterwards.
+
+    Nothing is fitted, so the split guards against one thing: trusting a pattern because of a lucky period.
+    'selected' says whether the training window alone would have passed it.
+    """
+    train = [t for t in trades if t.entry_date <= train_end]
+    test = [t for t in trades if t.entry_date > train_end]
+    tr = stats(train)
+    return {
+        "train_end": train_end,
+        "train": tr,
+        "test": stats(test),
+        "selected": tr.get("trades", 0) >= MIN_TRADES and tr.get("avg_r", -1) >= EDGE_R,
+    }
+
+
+def by_year(trades: list[Trade]) -> dict:
+    """Closed-trade stats keyed by the calendar year of the exit."""
+    years = sorted({t.exit_date[:4] for t in trades if t.outcome != "open"})
+    return {y: stats([t for t in trades if t.exit_date[:4] == y]) for y in years}

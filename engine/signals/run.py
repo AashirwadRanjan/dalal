@@ -23,6 +23,17 @@ def _clean(x):
     return x
 
 
+def benchmark(prices: pd.DataFrame) -> list[tuple]:
+    """Equal-weight buy-and-hold of today's universe: each day, the average one-day return across stocks
+    that traded both days, compounded from 100. Survivorship: only stocks in today's list are included."""
+    close = prices.pivot(index="date", columns="symbol", values="close").sort_index()
+    ret = close.pct_change(fill_method=None)
+    daily = ret.mean(axis=1, skipna=True).fillna(0.0)
+    n = ret.notna().sum(axis=1)
+    index = 100 * (1 + daily).cumprod()
+    return [(d, float(r), float(i), int(k)) for d, r, i, k in zip(daily.index, daily, index, n)]
+
+
 def run(conn) -> str:
     prices = pd.read_sql(
         "SELECT symbol, date, open, high, low, close, volume FROM prices_daily ORDER BY symbol, date",
@@ -62,6 +73,8 @@ def run(conn) -> str:
         st = backtest.stats(mine)
         st["by_trend"] = {tr: backtest.stats([t for t in mine if t.trend == tr]) for tr in state.TRENDS}
         st["params"] = {"max_hold": backtest.MAX_HOLD, "cost_pct": backtest.COST_PCT, "reward_r": patterns.REWARD_R}
+        st["walk_forward"] = backtest.walk_forward(mine)
+        st["by_year"] = backtest.by_year(mine)
         stat_rows.append((p, json.dumps(st)))
 
     snap = pd.DataFrame(latest)
@@ -70,9 +83,10 @@ def run(conn) -> str:
     state_rows = [(r["symbol"], *(_clean(r[c]) for c in STATE_COLS)) for _, r in snap.iterrows()]
 
     tf_status, tf_stats, tf_note = timeframes.run(prices)
+    bench = benchmark(prices)
 
     with conn:  # one transaction: the dashboard never sees a half-rebuilt state
-        for t in ("signals", "trades", "pattern_stats", "stock_state", "tf_status", "tf_stats"):
+        for t in ("signals", "trades", "pattern_stats", "stock_state", "tf_status", "tf_stats", "benchmark_daily"):
             conn.execute(f"DELETE FROM {t}")
         conn.executemany("INSERT INTO signals (symbol, date, pattern, trend, entry, stop, target, detail) "
                          "VALUES (?,?,?,?,?,?,?,?)", sig_rows)
@@ -88,6 +102,7 @@ def run(conn) -> str:
         )
         conn.executemany("INSERT INTO tf_status VALUES (?,?,?,?,?,?,?,?,?)", tf_status)
         conn.executemany("INSERT INTO tf_stats VALUES (?,?,?)", tf_stats)
+        conn.executemany("INSERT INTO benchmark_daily VALUES (?,?,?,?)", bench)
 
     closed = sum(t.outcome != "open" for t in all_trades)
     return f"{len(sig_rows)} signals, {closed} closed backtest trades, {len(state_rows)} stock states; {tf_note}"

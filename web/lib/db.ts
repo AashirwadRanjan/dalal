@@ -97,6 +97,8 @@ type StatsCore = {
 export type PatternStats = {
   pattern: string;
   by_trend?: Record<string, StatsCore>;
+  by_year?: Record<string, StatsCore>;
+  walk_forward?: { train_end: string; train: StatsCore; test: StatsCore; selected: boolean };
   trades: number;
   win_rate?: number;
   avg_r?: number;
@@ -438,4 +440,9 @@ export function getTfStats(): TfStats[] {
         : []
     ) ?? []
   );
+}
+
+export type BenchPoint = { date: string; idx: number; stocks: number };
+export function getBenchmark(): BenchPoint[] {
+  return withDb((db) => (hasTable(db, "benchmark_daily") ? (db.prepare("SELECT date, idx, stocks FROM benchmark_daily ORDER BY date").all() as BenchPoint[]) : [])) ?? [];
 }

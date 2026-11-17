@@ -70,6 +70,39 @@ class Simulate(unittest.TestCase):
         self.assertEqual(len(backtest.run_symbol([s1, s2], o, h, l, c, d)), 1)
 
 
+class Rigor(unittest.TestCase):
+    def trade(self, entry_date, exit_date, r):
+        return backtest.Trade("breakout", entry_date, entry_date, 100, 95, 110, exit_date, 100 + 5 * r, "target" if r > 0 else "stop",
+                              r, r * 5, 3, 0)
+
+    def test_walk_forward_split_and_selection(self):
+        train = [self.trade("2025-06-01", "2025-06-05", 1.0)] * 120
+        test = [self.trade("2026-02-01", "2026-02-05", -1.0)] * 10
+        wf = backtest.walk_forward(train + test)
+        self.assertEqual((wf["train"]["trades"], wf["test"]["trades"]), (120, 10))
+        self.assertTrue(wf["selected"])
+        self.assertLess(wf["test"]["avg_r"], 0)
+
+    def test_not_selected_with_few_trades(self):
+        self.assertFalse(backtest.walk_forward([self.trade("2025-06-01", "2025-06-05", 2.0)] * 20)["selected"])
+
+    def test_by_year_uses_exit_year(self):
+        y = backtest.by_year([self.trade("2025-12-28", "2026-01-03", 1.0), self.trade("2025-03-01", "2025-03-04", -1.0)])
+        self.assertEqual(sorted(y), ["2025", "2026"])
+        self.assertEqual(y["2026"]["trades"], 1)
+
+
+class Benchmark(unittest.TestCase):
+    def test_equal_weight_average_of_daily_returns(self):
+        from engine.signals.run import benchmark
+        rows = [("A", "2026-01-01", 100.0), ("A", "2026-01-02", 110.0), ("B", "2026-01-01", 50.0), ("B", "2026-01-02", 45.0)]
+        df = pd.DataFrame(rows, columns=["symbol", "date", "close"])
+        out = benchmark(df)
+        self.assertAlmostEqual(out[1][1], 0.0)        # (+10% + -10%) / 2
+        self.assertAlmostEqual(out[1][2], 100.0)
+        self.assertEqual(out[1][3], 2)
+
+
 class NoLookahead(unittest.TestCase):
     def test_signals_unchanged_when_future_bars_removed(self):
         rng = np.random.default_rng(7)

@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import BenchmarkChart from "@/components/BenchmarkChart";
 import RunningTotal from "@/components/RunningTotal";
 import { DashedNotice, PageHead, TablePanel } from "@/components/ui";
-import { getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
+import { getBenchmark, getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
-import { OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, dayMonth, frac, signed, toneOf } from "@/lib/format";
+import { OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Backtest" };
@@ -14,6 +15,16 @@ export default function BacktestPage() {
   const e = edgeSummary(raw);
   const params = (raw[0] as { params?: { max_hold: number; cost_pct: number; reward_r: number } } | undefined)?.params;
   const trades = getTrades({ limit: 10 });
+
+  const passed = e.stats.filter((s) => s.walk_forward?.selected);
+  const heldUp = passed.filter((s) => (s.walk_forward?.test.avg_r ?? -1) >= 0.05);
+  const oosNote = !e.stats.some((s) => s.walk_forward)
+    ? "There is no out-of-sample test yet. Do not trust any pattern until there is."
+    : !passed.length
+      ? "No pattern passed the training period, so none is worth testing further yet."
+      : heldUp.length
+        ? `${heldUp.map((s) => PATTERN_LABEL[s.pattern]).join(", ")} held up out of sample. One period is still thin evidence.`
+        : `${passed.map((s) => PATTERN_LABEL[s.pattern]).join(", ")} looked good in training and then lost money out of sample. Do not trust any pattern yet.`;
 
   // Which trend groups were positive? If only "unknown" (the first ~200 days), say it is the market phase.
   const positive = new Set<string>();
@@ -90,6 +101,19 @@ export default function BacktestPage() {
             <div className="note" style={{ fontSize: 13 }}>Every closed trade, added on its exit day. The totals match the table above.</div>
           </section>
 
+          <OutOfSample stats={e.stats} />
+
+          <ByYear stats={e.stats} />
+
+          <section style={{ paddingTop: 56 }}>
+            <h2 className="sec-title">Compared with simply holding</h2>
+            <p className="sec-sub">
+              Buying every stock in today’s list in equal amounts and holding. This is the bar a trading rule has to beat. It
+              is flattered by the same survivorship as the backtest, and it is in %, not R, so it gets its own chart.
+            </p>
+            <BenchmarkChart points={getBenchmark()} from={getEquity()[0]?.date} />
+          </section>
+
           <section className="cols" style={{ paddingTop: 56 }}>
             <div>
               <h2 className="sec-title" style={{ marginBottom: 16 }}>How the test works</h2>
@@ -109,7 +133,7 @@ export default function BacktestPage() {
               <div className="lines">
                 <div>{phaseNote}</div>
                 <div>The test uses today’s Nifty 500 list, so stocks that fell out of it are missing. This flatters the results.</div>
-                <div>There is no out-of-sample test yet. Do not trust any pattern until there is.</div>
+                <div>{oosNote}</div>
               </div>
             </div>
           </section>
@@ -144,11 +168,11 @@ export default function BacktestPage() {
           </section>
 
           <section style={{ marginTop: 56 }}>
-            <DashedNotice title="Coming next">
+            <DashedNotice title="What would make this test stronger">
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 40px", color: "var(--text-2)" }}>
-                <span>Walk-forward test: train on 2024-11 to 2025-12, test on 2026</span>
-                <span>Results for each year</span>
-                <span>Equal-weight Nifty 500 buy-and-hold benchmark on the chart</span>
+                <span>Five or more years of prices, not two</span>
+                <span>Stocks that left the Nifty 500, to remove survivorship</span>
+                <span>Slippage beyond the 0.1% cost</span>
               </div>
             </DashedNotice>
           </section>
@@ -198,6 +222,78 @@ function WeeklyMonthly() {
           longer price history would make them possible.
         </p>
       )}
+    </section>
+  );
+}
+
+function OutOfSample({ stats }: { stats: ReturnType<typeof edgeSummary>["stats"] }) {
+  const rows = stats.filter((s) => s.walk_forward);
+  if (!rows.length) return null;
+  const end = rows[0].walk_forward!.train_end;
+  const failed = rows.filter((s) => s.walk_forward!.selected && (s.walk_forward!.test.avg_r ?? 0) < 0);
+  return (
+    <section style={{ paddingTop: 56 }}>
+      <h2 className="sec-title">Out of sample</h2>
+      <p className="sec-sub">
+        Judge each pattern on trades entered up to {dayShort(end)} {end.slice(0, 4)}, then see what happened after. A pattern
+        “passes” training if it averaged at least +0.05R over 100 or more trades.
+        {failed.length > 0 && ` ${failed.map((s) => PATTERN_PLURAL[s.pattern][0].toUpperCase() + PATTERN_PLURAL[s.pattern].slice(1)).join(" and ")} passed training and then lost money.`}
+      </p>
+      <TablePanel minWidth={760}>
+        <table className="tbl">
+          <thead>
+            <tr><th>Pattern</th><th className="r">Training trades</th><th className="r">Training avg</th><th>Passed?</th><th className="r">Later trades</th><th className="r">Later avg</th></tr>
+          </thead>
+          <tbody>
+            {rows.map((s) => {
+              const w = s.walk_forward!;
+              return (
+                <tr key={s.pattern}>
+                  <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                  <td className="n">{w.train.trades}</td>
+                  <td className={`n ${toneOf(w.train.avg_r)}`}>{signed(w.train.avg_r, 3)}</td>
+                  <td>{w.selected ? <span className="tag t-up">Passed</span> : <span className="tag t-flat">Did not pass</span>}</td>
+                  <td className="n">{w.test.trades}</td>
+                  <td className={`n ${toneOf(w.test.avg_r)}`}>{signed(w.test.avg_r, 3)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </TablePanel>
+    </section>
+  );
+}
+
+function ByYear({ stats }: { stats: ReturnType<typeof edgeSummary>["stats"] }) {
+  const years = [...new Set(stats.flatMap((s) => Object.keys(s.by_year ?? {})))].sort();
+  if (!years.length) return null;
+  return (
+    <section style={{ paddingTop: 56 }}>
+      <h2 className="sec-title">Each year</h2>
+      <p className="sec-sub">Average result per trade by the year the trade closed. A pattern that only works in one year is a market-phase effect.</p>
+      <TablePanel minWidth={560}>
+        <table className="tbl">
+          <thead>
+            <tr><th>Pattern</th>{years.map((y) => <th key={y} className="r">{y}</th>)}</tr>
+          </thead>
+          <tbody>
+            {stats.map((s) => (
+              <tr key={s.pattern}>
+                <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                {years.map((y) => {
+                  const b = s.by_year?.[y];
+                  return (
+                    <td key={y} className={`n ${toneOf(b?.avg_r)}`}>
+                      {b?.trades ? <>{signed(b.avg_r, 3)}<span className="sub-n">{b.trades} trades</span></> : "–"}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TablePanel>
     </section>
   );
 }

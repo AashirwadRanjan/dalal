@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS tf_stats (
     PRIMARY KEY (tf, pattern)
 );
 
+-- Equal-weight buy-and-hold of today's universe (benchmark for the backtest chart)
+CREATE TABLE IF NOT EXISTS benchmark_daily (
+    date   TEXT PRIMARY KEY,
+    ret    REAL,                   -- average one-day return across stocks
+    idx    REAL,                   -- compounded index, first day = 100
+    stocks INTEGER                 -- how many stocks contributed that day
+);
+
 -- One market brief per trading day (engine/summary.py)
 CREATE TABLE IF NOT EXISTS daily_brief (
     date TEXT PRIMARY KEY,

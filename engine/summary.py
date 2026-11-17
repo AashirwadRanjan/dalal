@@ -1,0 +1,176 @@
+"""Daily market brief: numbers + plain-language headlines, built from what the other steps wrote.
+
+Runs last in engine.run_daily. One row per trading day in daily_brief, so earlier briefs stay browsable.
+Rule-based on purpose: every sentence traces to a number on the dashboard.
+"""
+import json
+import sqlite3
+
+
+def _rows(conn, sql, *args):
+    conn.row_factory = sqlite3.Row
+    try:
+        return [dict(r) for r in conn.execute(sql, args).fetchall()]
+    finally:
+        conn.row_factory = None
+
+
+def _pct(x, d=2):
+    return f"{'+' if x > 0 else ''}{x:.{d}f}%"
+
+
+def _cr(x):
+    return f"{'+' if x > 0 else '−' if x < 0 else ''}₹{abs(round(x)):,} Cr"
+
+
+def _series(conn, grp):
+    return _rows(conn, """
+        WITH r AS (SELECT symbol, name, date, close, sort_order,
+                          ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) rn
+                   FROM market_series WHERE grp = ?)
+        SELECT a.symbol, a.name, a.date, a.close, 100.0 * (a.close - b.close) / b.close AS chg
+        FROM r a JOIN r b ON a.symbol = b.symbol AND b.rn = 2
+        WHERE a.rn = 1 ORDER BY a.sort_order""", grp)
+
+
+def build(conn) -> dict:
+    stocks = _rows(conn, """
+        SELECT s.symbol, i.name, i.sector, s.date, s.close, 100 * s.chg_1d AS chg, s.trend, s.volx,
+               s.close > s.dma50 AS above50, s.close > s.dma200 AS above200, s.breakdown
+        FROM stock_state s JOIN instruments i USING (symbol) WHERE s.chg_1d IS NOT NULL""")
+    if not stocks:
+        raise RuntimeError("No stock_state rows. Run the signals step first.")
+    date = max(s["date"] for s in stocks)
+    stocks = [s for s in stocks if s["date"] == date]  # ignore stale/suspended names
+    n = len(stocks)
+
+    adv = sum(s["chg"] > 0 for s in stocks)
+    dec = sum(s["chg"] < 0 for s in stocks)
+    breadth = {
+        "advances": adv, "declines": dec, "unchanged": n - adv - dec, "total": n,
+        "pct_above_50dma": round(100 * sum(bool(s["above50"]) for s in stocks) / n, 1),
+        "pct_above_200dma": round(100 * sum(bool(s["above200"]) for s in stocks) / n, 1),
+        "trend": {t: sum(s["trend"] == t for s in stocks) for t in ("up", "sideways", "down")},
+    }
+
+    by_sector: dict[str, list[float]] = {}
+    for s in stocks:
+        if s["sector"]:
+            by_sector.setdefault(s["sector"], []).append(s["chg"])
+    sectors = sorted(
+        ({"sector": k, "chg": round(sum(v) / len(v), 2), "n": len(v)} for k, v in by_sector.items() if len(v) >= 3),
+        key=lambda x: -x["chg"],
+    )
+
+    def pick(rows, key, k=5, reverse=True):
+        return [
+            {"symbol": r["symbol"], "name": r["name"], "chg": round(r["chg"], 2), "volx": r["volx"] and round(r["volx"], 1)}
+            for r in sorted(rows, key=lambda r: r[key] or 0, reverse=reverse)[:k]
+        ]
+
+    india, glob = _series(conn, "india"), _series(conn, "global")
+    flows = _rows(conn, "SELECT date, fii_net, dii_net FROM fii_dii_daily ORDER BY date DESC LIMIT 5")
+    setups = _rows(conn, "SELECT pattern, COUNT(*) n FROM signals WHERE date = ? GROUP BY pattern", date)
+
+    data = {
+        "date": date,
+        "indices": [{"name": x["name"], "close": x["close"], "chg": round(x["chg"], 2)} for x in india],
+        "global": [{"name": x["name"], "close": x["close"], "chg": round(x["chg"], 2), "date": x["date"]} for x in glob],
+        "breadth": breadth,
+        "flows": flows,
+        "sectors_top": sectors[:3],
+        "sectors_bottom": sectors[-3:][::-1],
+        "gainers": pick(stocks, "chg"),
+        "losers": pick(stocks, "chg", reverse=False),
+        "volume": pick([s for s in stocks if s["volx"]], "volx"),
+        "setups": {r["pattern"]: r["n"] for r in setups},
+        "breakdowns": sum(bool(s["breakdown"]) for s in stocks),
+    }
+    data["headlines"] = headlines(data)
+    return data
+
+
+def headlines(d: dict) -> list[dict]:
+    """[{tone: up|down|flat, text}] in reading order."""
+    out = []
+
+    def say(text, x=0.0):
+        out.append({"tone": "up" if x > 0 else "down" if x < 0 else "flat", "text": text})
+
+    idx = {i["name"]: i for i in d["indices"]}
+    nifty = idx.get("Nifty 50")
+    if nifty:
+        verb = "rose" if nifty["chg"] > 0 else "fell" if nifty["chg"] < 0 else "was flat"
+        extra = ", ".join(f"{k} {_pct(idx[k]['chg'])}" for k in ("Sensex", "Bank Nifty") if k in idx)
+        say(f"Nifty 50 {verb} {abs(nifty['chg']):.2f}% to {nifty['close']:,.0f}" + (f" ({extra})." if extra else "."),
+            nifty["chg"])
+
+    b = d["breadth"]
+    share = b["advances"] / max(b["advances"] + b["declines"], 1)
+    if nifty and nifty["chg"] > 0.2 and share < 0.45:
+        say(f"Narrow move: the index rose but only {b['advances']} of {b['total']} stocks did.", -1)
+    elif nifty and nifty["chg"] < -0.2 and share > 0.55:
+        say(f"Index fell but most stocks rose ({b['advances']} of {b['total']}): selling was concentrated in heavyweights.", 1)
+    elif share >= 0.65:
+        say(f"Broad-based buying: {b['advances']} of {b['total']} Nifty 500 stocks rose.", 1)
+    elif share <= 0.35:
+        say(f"Broad-based selling: {b['declines']} of {b['total']} Nifty 500 stocks fell.", -1)
+    else:
+        say(f"Mixed breadth: {b['advances']} stocks rose, {b['declines']} fell.")
+
+    if d["flows"]:
+        f = d["flows"][0]
+        if f["fii_net"] is not None:
+            role = "buyers" if f["fii_net"] > 0 else "sellers"
+            text = f"FIIs were net {role} at {_cr(f['fii_net'])}"
+            if f["dii_net"] is not None:
+                text += f"; DIIs {_cr(f['dii_net'])}"
+            if len(d["flows"]) >= 3:
+                tot = sum(x["fii_net"] or 0 for x in d["flows"])
+                text += f". FII total over the last {len(d['flows'])} days: {_cr(tot)}"
+            say(text + ".", f["fii_net"])
+
+    vix = idx.get("India VIX")
+    if vix and (vix["chg"] >= 5 or vix["close"] >= 20):
+        say(f"Volatility {'up' if vix['chg'] > 0 else 'high'}: India VIX {_pct(vix['chg'])} to {vix['close']:.1f}.", -1)
+
+    g = {x["name"]: x for x in d["global"]}
+    us = [g[k] for k in ("S&P 500", "Nasdaq") if k in g]
+    if us:
+        avg = sum(x["chg"] for x in us) / len(us)
+        detail = ", ".join(f"{x['name']} {_pct(x['chg'])}" for x in us)
+        if abs(avg) >= 0.75:
+            say(f"US markets {'rallied' if avg > 0 else 'fell'} in their last session ({detail}): "
+                f"a {'positive' if avg > 0 else 'negative'} cue for the next open.", avg)
+        else:
+            say(f"US markets were quiet ({detail}).")
+    for name, label, th in (("Brent crude", "Crude oil", 2.0), ("USD/INR", "The rupee", 0.4)):
+        x = g.get(name)
+        if x and abs(x["chg"]) >= th:
+            if name == "USD/INR":  # USD/INR up = rupee weaker
+                say(f"The rupee {'weakened' if x['chg'] > 0 else 'strengthened'}: USD/INR {x['close']:.2f} ({_pct(x['chg'])}).", -x["chg"])
+            else:
+                say(f"{label} moved {_pct(x['chg'])} to {x['close']:.1f}; watch oil-sensitive sectors.",
+                    -x["chg"])  # costlier oil is a headwind for India
+
+    if d["sectors_top"]:
+        top = ", ".join(f"{s['sector']} {_pct(s['chg'], 1)}" for s in d["sectors_top"])
+        bot = ", ".join(f"{s['sector']} {_pct(s['chg'], 1)}" for s in d["sectors_bottom"])
+        say(f"Strongest sectors: {top}. Weakest: {bot}.")
+
+    t = b["trend"]
+    say(f"Trend health: {t['up']} stocks in uptrends, {t['down']} in downtrends; "
+        f"{b['pct_above_200dma']:.0f}% trade above their 200-day average.",
+        1 if b["pct_above_200dma"] >= 60 else -1 if b["pct_above_200dma"] <= 40 else 0)
+
+    n_setups = sum(d["setups"].values())
+    if n_setups or d["breakdowns"]:
+        say(f"{n_setups} bullish pattern setups and {d['breakdowns']} breakdowns on today's close.")
+    return out
+
+
+def run(conn) -> str:
+    data = build(conn)
+    with conn:
+        conn.execute("INSERT OR REPLACE INTO daily_brief (date, data) VALUES (?, ?)", (data["date"], json.dumps(data)))
+    return f"brief for {data['date']}: {data['headlines'][0]['text'] if data['headlines'] else 'no headlines'}"

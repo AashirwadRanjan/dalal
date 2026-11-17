@@ -21,15 +21,6 @@ export type FlowRow = {
   fii_net: number | null;
   dii_net: number | null;
 };
-export type ScreenerRow = {
-  symbol: string;
-  name: string;
-  sector: string;
-  close: number;
-  prev_close: number | null;
-  volume: number | null;
-  avg_vol: number | null;
-};
 export type Candle = {
   date: string;
   open: number;
@@ -74,29 +65,6 @@ export function getFlows(days = 20): FlowRow[] {
   return rows.reverse();
 }
 
-export function getScreener(): ScreenerRow[] {
-  return (
-    withDb((db) =>
-      db
-        .prepare(
-          `WITH ranked AS (
-             SELECT symbol, date, close, volume,
-                    ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY date DESC) AS rn
-             FROM prices_daily
-           )
-           SELECT i.symbol, i.name, i.sector,
-                  a.close AS close, b.close AS prev_close, a.volume AS volume,
-                  (SELECT AVG(volume) FROM ranked r
-                    WHERE r.symbol = i.symbol AND r.rn BETWEEN 2 AND 21) AS avg_vol
-           FROM instruments i
-           JOIN ranked a ON a.symbol = i.symbol AND a.rn = 1
-           LEFT JOIN ranked b ON b.symbol = i.symbol AND b.rn = 2`
-        )
-        .all() as ScreenerRow[]
-    ) ?? []
-  );
-}
-
 export function getStock(symbol: string) {
   return withDb((db) => {
     const inst = db
@@ -112,23 +80,6 @@ export function getStock(symbol: string) {
   });
 }
 
-export type Freshness = { latestPriceDate: string | null; failedSteps: string[] };
-
-export function getFreshness(): Freshness {
-  return (
-    withDb((db) => {
-      const latest = db.prepare("SELECT MAX(date) AS d FROM prices_daily").get() as { d: string | null };
-      // last status per step; surface any whose most recent run failed
-      const failed = db
-        .prepare(
-          `SELECT step FROM ingest_log l
-           WHERE id = (SELECT MAX(id) FROM ingest_log WHERE step = l.step) AND status = 'failed'`
-        )
-        .all() as { step: string }[];
-      return { latestPriceDate: latest.d, failedSteps: failed.map((f) => f.step) };
-    }) ?? { latestPriceDate: null, failedSteps: [] }
-  );
-}
 
 // ---- Phase 2: pattern engine + backtest (written by engine/signals) ----
 
@@ -163,6 +114,8 @@ export type Setup = {
   date: string;
   pattern: string;
   trend: string | null;
+  volx?: number | null;
+  rs_pct?: number | null;
   entry: number;
   stop: number;
   target: number;
@@ -207,10 +160,12 @@ export function getSetups(): Setup[] {
       if (!hasTable(db, "signals")) return [];
       return db
         .prepare(
-          `SELECT s.symbol, i.name, i.sector, s.date, s.pattern, s.trend, s.entry, s.stop, s.target, s.detail
+          `SELECT s.symbol, i.name, i.sector, s.date, s.pattern, s.trend, st.volx, st.rs_pct,
+                  s.entry, s.stop, s.target, s.detail
            FROM signals s JOIN instruments i ON i.symbol = s.symbol
+           LEFT JOIN stock_state st ON st.symbol = s.symbol AND st.date = s.date
            WHERE s.date = (SELECT MAX(date) FROM prices_daily)
-           ORDER BY s.pattern, s.symbol`
+           ORDER BY st.volx DESC, s.symbol`
         )
         .all() as Setup[];
     }) ?? []
@@ -269,6 +224,8 @@ export type Headline = { tone: "up" | "down" | "flat"; text: string };
 export type Brief = {
   date: string;
   headlines: Headline[];
+  hero?: { headline: string; text: string };
+  lines?: Headline[];
   indices: { name: string; close: number; chg: number }[];
   global: { name: string; close: number; chg: number; date: string }[];
   breadth: {
@@ -325,6 +282,7 @@ export type StockState = {
   hi52: number | null;
   lo52: number | null;
   volx: number | null;
+  low20: number | null;
   breakdown: number;
 };
 
@@ -374,4 +332,33 @@ export function getRunStatus(): RunStatus {
       return { latestPriceDate: latest.d, steps, lastRun };
     }) ?? { latestPriceDate: null, steps: [], lastRun: null }
   );
+}
+
+export type HealthFacts = {
+  instruments: number;
+  withPrices: number;
+  onLatest: number;
+  latestPriceDate: string | null;
+  flowDays: number;
+  signals: number;
+  firstSignal: string | null;
+  briefDate: string | null;
+};
+
+/** Counts behind each step's "What it found" line on /health. */
+export function getHealthFacts(): HealthFacts | null {
+  return withDb((db) => {
+    const one = <T,>(sql: string) => db.prepare(sql).get() as T;
+    const latest = one<{ d: string | null }>("SELECT MAX(date) d FROM prices_daily").d;
+    return {
+      instruments: one<{ n: number }>("SELECT COUNT(*) n FROM instruments").n,
+      withPrices: one<{ n: number }>("SELECT COUNT(DISTINCT symbol) n FROM prices_daily").n,
+      onLatest: (db.prepare("SELECT COUNT(*) n FROM prices_daily WHERE date = ?").get(latest) as { n: number }).n,
+      latestPriceDate: latest,
+      flowDays: one<{ n: number }>("SELECT COUNT(*) n FROM fii_dii_daily").n,
+      signals: hasTable(db, "signals") ? one<{ n: number }>("SELECT COUNT(*) n FROM signals").n : 0,
+      firstSignal: hasTable(db, "signals") ? one<{ d: string | null }>("SELECT MIN(date) d FROM signals").d : null,
+      briefDate: hasTable(db, "daily_brief") ? one<{ d: string | null }>("SELECT MAX(date) d FROM daily_brief").d : null,
+    };
+  });
 }

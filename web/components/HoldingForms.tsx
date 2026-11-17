@@ -5,9 +5,9 @@ import { addHolding, importHoldings, type FormState } from "@/app/portfolio/acti
 
 function Status({ s }: { s: FormState }) {
   return (
-    <p className="formstatus" role="status">
+    <p role="status" style={{ fontSize: 14, minHeight: "1.5em", margin: "10px 0 0" }}>
       {s.ok && <span className="up">{s.ok} </span>}
-      {s.error && <span className="warn">{s.error}</span>}
+      {s.error && <span className="down">{s.error}</span>}
     </p>
   );
 }
@@ -17,25 +17,29 @@ export default function HoldingForms({ symbols }: { symbols: { symbol: string; n
   const [impState, imp, importing] = useActionState(importHoldings, {});
 
   return (
-    <div className="pfforms">
-      <form action={add} className="pfadd">
-        <h3>Add or update a holding</h3>
-        <div className="row">
-          <label>
-            Stock
-            <input name="symbol" list="symbols" placeholder="e.g. RELIANCE" required autoComplete="off" />
+    <section className="cols" style={{ gap: 32, marginTop: 56 }}>
+      <form action={add} className="panel panel-pad" aria-labelledby="add-h">
+        <h2 className="panel-title" id="add-h">Add a holding</h2>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <label className="field">
+            Stock symbol
+            <input name="symbol" list="pf-symbols" placeholder="For example RELIANCE" required autoComplete="off" />
           </label>
-          <label>
-            Quantity
-            <input name="qty" type="number" min="0" step="any" required inputMode="decimal" />
-          </label>
-          <label>
-            Average price (₹)
-            <input name="avg" type="number" min="0" step="any" required inputMode="decimal" />
-          </label>
-          <button disabled={adding}>{adding ? "Saving…" : "Save"}</button>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+            <label className="field" style={{ flex: "1 1 140px" }}>
+              Quantity
+              <input name="qty" type="number" min="0" step="any" inputMode="decimal" placeholder="30" required />
+            </label>
+            <label className="field" style={{ flex: "1 1 140px" }}>
+              Average cost, ₹
+              <input name="avg" type="number" min="0" step="any" inputMode="decimal" placeholder="1,180.00" required />
+            </label>
+          </div>
+          <button className="btn btn-primary" style={{ alignSelf: "flex-start" }} disabled={adding}>
+            {adding ? "Saving…" : "Add holding"}
+          </button>
         </div>
-        <datalist id="symbols">
+        <datalist id="pf-symbols">
           {symbols.map((s) => (
             <option key={s.symbol} value={s.symbol}>{s.name}</option>
           ))}
@@ -43,16 +47,21 @@ export default function HoldingForms({ symbols }: { symbols: { symbol: string; n
         <Status s={addState} />
       </form>
 
-      <form action={imp} className="pfimport">
-        <h3>Or paste several</h3>
-        <p className="sub">
-          One per line as <code>SYMBOL, quantity, average price</code>, or paste your broker&apos;s holdings export
-          (Zerodha, Groww and Upstox columns are recognised). Existing holdings are updated.
+      <form action={imp} className="panel panel-pad" aria-labelledby="imp-h">
+        <h2 className="panel-title" id="imp-h" style={{ marginBottom: 6 }}>Import from a paste</h2>
+        <p style={{ margin: "0 0 16px", fontSize: 14, color: "var(--text-2)" }}>
+          One holding per line: symbol, quantity, average cost. A broker holdings export (Zerodha, Groww) also works.
+          Existing holdings are updated.
         </p>
-        <textarea name="csv" rows={4} placeholder={"RELIANCE, 10, 2450\nTCS, 5, 3600"} />
-        <button disabled={importing}>{importing ? "Importing…" : "Import"}</button>
+        <label className="field">
+          <span className="sr-only">Holdings to import</span>
+          <textarea name="csv" rows={5} placeholder={"RELIANCE, 30, 1180\nTCS, 6, 3720"} />
+        </label>
+        <button className="btn btn-outline" style={{ marginTop: 16 }} disabled={importing}>
+          {importing ? "Importing…" : "Import"}
+        </button>
         <Status s={impState} />
       </form>
-    </div>
+    </section>
   );
 }

@@ -59,6 +59,7 @@ def run(conn) -> str:
         mine = [t for t in all_trades if t.pattern == p]
         st = backtest.stats(mine)
         st["by_trend"] = {tr: backtest.stats([t for t in mine if t.trend == tr]) for tr in state.TRENDS}
+        st["params"] = {"max_hold": backtest.MAX_HOLD, "cost_pct": backtest.COST_PCT, "reward_r": patterns.REWARD_R}
         stat_rows.append((p, json.dumps(st)))
 
     snap = pd.DataFrame(latest)

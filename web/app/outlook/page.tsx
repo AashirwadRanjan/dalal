@@ -1,154 +1,69 @@
-import Link from "next/link";
-import { getPatternStats, getSetups, getStates, type StockState } from "@/lib/db";
-import { PATTERN_LABEL, frac, inr, pct, rMult, tone } from "@/lib/format";
+import type { Metadata } from "next";
+import OutlookTabs, { type OutlookGroup, type OutlookRow } from "@/components/OutlookTabs";
+import { PageHead } from "@/components/ui";
+import { getSetups, getStates, type StockState } from "@/lib/db";
+import { PATTERN_LABEL, frac, inr, pct, toneOf } from "@/lib/format";
+import { LEADER_RS, WEAK_RS, atrFrom50, outlookGroups } from "@/lib/outlook";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Outlook" };
 
-const LEADER_RS = 80; // top 20% by 6-month return
-const LAGGARD_RS = 20;
+const row = (s: StockState, extra: string): OutlookRow => ({
+  symbol: s.symbol, name: s.name, price: inr(s.close), ret6m: frac(s.ret_6m), retTone: toneOf(s.ret_6m),
+  rs: s.rs_pct, trend: s.trend, extra,
+});
 
-function StockTable({ rows, extra }: { rows: StockState[]; extra?: { label: string; cell: (s: StockState) => React.ReactNode } }) {
-  if (!rows.length) return <p className="muted">Nothing matches today.</p>;
-  return (
-    <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Stock</th>
-            <th>Sector</th>
-            <th>Close</th>
-            <th>1 month</th>
-            <th>3 months</th>
-            <th>6 months</th>
-            <th>From 52-wk high</th>
-            {extra && <th>{extra.label}</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((s) => (
-            <tr key={s.symbol}>
-              <td>
-                <Link href={`/stock/${encodeURIComponent(s.symbol)}`}>{s.symbol}</Link>
-                <span className="name">{s.name}</span>
-              </td>
-              <td className="muted sector" title={s.sector}>{s.sector}</td>
-              <td className="num">{inr(s.close)}</td>
-              <td className={`num ${tone(s.ret_1m)}`}>{frac(s.ret_1m)}</td>
-              <td className={`num ${tone(s.ret_3m)}`}>{frac(s.ret_3m)}</td>
-              <td className={`num ${tone(s.ret_6m)}`}>{frac(s.ret_6m)}</td>
-              <td className="num">{s.hi52 ? pct(((s.close - s.hi52) / s.hi52) * 100) : "–"}</td>
-              {extra && <td className="num">{extra.cell(s)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+export default async function OutlookPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
+  const { tab } = await searchParams;
+  const g = outlookGroups(getStates(), getSetups());
+  const from200 = (s: StockState) => (s.dma200 ? pct(((s.close - s.dma200) / s.dma200) * 100, 1) : "–");
 
-export default function OutlookPage() {
-  const states = getStates();
-  const bySym = new Map(states.map((s) => [s.symbol, s]));
-  const stats = Object.fromEntries(getPatternStats().map((s) => [s.pattern, s]));
-  const setups = getSetups().filter((s) => s.trend === "up");
-
-  const leaders = states
-    .filter((s) => s.trend === "up" && (s.rs_pct ?? 0) >= LEADER_RS && s.trail_stop != null && s.close > s.trail_stop)
-    .sort((a, b) => (b.rs_pct ?? 0) - (a.rs_pct ?? 0));
-  const pullbacks = leaders.filter((s) => s.dma50 != null && s.atr != null && Math.abs(s.close - s.dma50) <= s.atr);
-  const laggards = states
-    .filter((s) => s.trend === "down" && (s.rs_pct ?? 100) <= LAGGARD_RS)
-    .sort((a, b) => (a.rs_pct ?? 0) - (b.rs_pct ?? 0));
-  const breakdowns = states.filter((s) => s.breakdown).sort((a, b) => (b.volx ?? 0) - (a.volx ?? 0));
-  const date = states[0]?.date;
+  const groups: OutlookGroup[] = [
+    {
+      id: "leaders", label: "Leaders", count: g.leaders.length, extraLabel: "Trailing stop",
+      blurb: `The strongest 6-month performers, strength ${LEADER_RS} or higher, in an uptrend and above their trailing stop.`,
+      rows: g.leaders.map((s) => row(s, inr(s.trail_stop))),
+    },
+    {
+      id: "pullbacks", label: "Pullbacks", count: g.pullbacks.length, extraLabel: "From 50-day average",
+      blurb: "Leaders that have cooled off and sit close to their 50-day average.",
+      rows: g.pullbacks.map((s) => {
+        const a = atrFrom50(s) ?? 0;
+        return row(s, `${Math.abs(a).toFixed(1)} ATR ${a >= 0 ? "above" : "below"}`);
+      }),
+    },
+    {
+      id: "setups", label: "Uptrend setups", count: g.uptrendSetups.length, extraLabel: "Setup",
+      blurb: "Setups that fired on a stock already in an uptrend. These have the cleanest context.",
+      rows: g.uptrendSetups.map(({ setup, state }) => row(state, PATTERN_LABEL[setup.pattern])),
+    },
+    {
+      id: "weak", label: "Weak stocks", count: g.weak.length, extraLabel: "From 200-day average",
+      blurb: `The weakest 6-month performers, strength ${WEAK_RS} or lower. Shorting in India is only possible intraday or through futures.`,
+      rows: g.weak.map((s) => row(s, from200(s))),
+    },
+    {
+      id: "breakdowns", label: "Breakdowns", count: g.breakdowns.length, extraLabel: "Closed below",
+      blurb: "Stocks that closed below their prior 20-day low on at least 1.5× usual volume on the latest day.",
+      rows: g.breakdowns.map((s) => row(s, s.low20 != null ? `20-day low ${inr(s.low20)}` : "20-day low")),
+    },
+  ];
 
   return (
     <main className="wrap">
-      <h1 className="pagetitle">Outlook</h1>
-      <p className="lede">
-        Screens over the Nifty 500 as of the {date ?? "latest"} close: what&apos;s strong, what&apos;s pulling back to a
-        possible entry, and what&apos;s weak. These are filters, not predictions. The{" "}
-        <Link href="/backtest">backtest</Link> shows no pattern with a reliable edge yet, uptrend or not.
-      </p>
-
-      <section className="osec">
-        <h2>Long setups in uptrending stocks</h2>
-        <p className="sub">
-          Today&apos;s bullish pattern signals, only in stocks above rising 50- and 200-day averages. Enter next open;
-          the stop and target come from the pattern.
-        </p>
-        {setups.length === 0 ? (
-          <p className="muted">No bullish setups in uptrending stocks today.</p>
-        ) : (
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Stock</th><th>Pattern</th><th>Entry</th><th>Stop</th><th>Target</th><th>6-month RS</th>
-                  <th title="This pattern's backtest result when the stock was in an uptrend">Backtest in uptrends</th>
-                </tr>
-              </thead>
-              <tbody>
-                {setups.map((s) => {
-                  const bt = stats[s.pattern]?.by_trend?.up;
-                  return (
-                    <tr key={s.symbol + s.pattern}>
-                      <td><Link href={`/stock/${encodeURIComponent(s.symbol)}`}>{s.symbol}</Link><span className="name">{s.name}</span></td>
-                      <td>{PATTERN_LABEL[s.pattern]}</td>
-                      <td className="num">{inr(s.entry)}</td>
-                      <td className="num">{inr(s.stop)}</td>
-                      <td className="num">{inr(s.target)}</td>
-                      <td className="num">{bySym.get(s.symbol)?.rs_pct?.toFixed(0) ?? "–"}</td>
-                      <td className="num">
-                        {bt?.trades ? <>{bt.trades} trades · <span className={tone(bt.avg_r)}>{rMult(bt.avg_r)}</span></> : "–"}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+      <PageHead
+        title="Outlook"
+        lede="Which stocks are leading, lagging or breaking down, judged by the last six months."
+        aside={
+          <div style={{ flex: "1 1 320px", maxWidth: 420, fontSize: 14, color: "var(--muted)" }}>
+            <div style={{ color: "var(--neutral)", fontWeight: 600, marginBottom: 4 }}>How stocks are picked</div>
+            Strength is the 6-month return ranked from 0 to 100 across {g.universe} stocks. Leaders score {LEADER_RS} or
+            more, weak stocks {WEAK_RS} or less. A pullback is a leader trading within one daily swing (ATR, the average
+            daily range) of its 50-day average.
           </div>
-        )}
-      </section>
-
-      <section className="osec">
-        <h2>Pullbacks in leaders: possible entries</h2>
-        <p className="sub">
-          Leaders (below) that have pulled back to within one average daily range of their 50-day average. Buying near
-          the 50-day average keeps the stop close; a close below the trailing stop says the idea failed.
-        </p>
-        <StockTable
-          rows={pullbacks}
-          extra={{ label: "Trailing stop", cell: (s) => inr(s.trail_stop) }}
-        />
-      </section>
-
-      <section className="osec">
-        <h2>Leaders: hold if you own them</h2>
-        <p className="sub">
-          Uptrend, top 20% by 6-month return, and above the trailing stop. {leaders.length} stocks. Holding while they
-          stay above the trailing stop is the trend-following approach.
-        </p>
-        <StockTable
-          rows={leaders.slice(0, 30)}
-          extra={{ label: "Trailing stop", cell: (s) => inr(s.trail_stop) }}
-        />
-      </section>
-
-      <section className="osec">
-        <h2>Weak: avoid, or short via F&amp;O</h2>
-        <p className="sub">
-          Downtrend and bottom 20% by 6-month return. {laggards.length} stocks. You can&apos;t hold a short overnight in
-          the cash market: shorting needs futures or options (only F&amp;O-listed stocks) or must be closed the same day.
-        </p>
-        <StockTable rows={laggards.slice(0, 30)} extra={{ label: "50-day avg", cell: (s) => inr(s.dma50) }} />
-      </section>
-
-      <section className="osec">
-        <h2>Breakdowns today</h2>
-        <p className="sub">Closed below the prior 20-day low on at least 1.5× average volume.</p>
-        <StockTable rows={breakdowns} extra={{ label: "Volume", cell: (s) => (s.volx ? `${s.volx.toFixed(1)}x` : "–") }} />
-      </section>
+        }
+      />
+      <OutlookTabs groups={groups} initial={tab ?? "leaders"} />
     </main>
   );
 }

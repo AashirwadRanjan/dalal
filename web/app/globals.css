@@ -191,7 +191,7 @@ main.wrap { padding-bottom: 72px; }
 .verdict-text { margin: 8px 0 0; color: var(--text-2); }
 
 /* ---------- tables ---------- */
-.tbl-wrap { overflow-x: auto; }
+.tbl-wrap { overflow-x: auto; position: relative; } /* relative: keeps absolutely positioned children (sr-only) inside the scroller */
 .tbl-pad { padding: 8px 28px; }
 table.tbl { width: 100%; border-collapse: collapse; }
 .tbl th {
@@ -240,6 +240,36 @@ table.tbl { width: 100%; border-collapse: collapse; }
 .chart-key { display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 14px; color: var(--text-2); }
 .chart-key i { display: inline-block; width: 18px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 8px; }
 
+/* ---------- Today ---------- */
+.hero { display: flex; flex-wrap: wrap; gap: 48px; align-items: center; padding: 40px 0 64px; }
+.hero-text { flex: 3 1 480px; min-width: 0; }
+.hero-title { margin: 12px 0 20px; font-size: 44px; line-height: 1.1; letter-spacing: -0.025em; font-weight: 700; }
+.hero-para { margin: 0; max-width: 560px; font-size: 18px; color: var(--text-2); }
+.hero-idx { flex: 2 1 340px; min-width: 0; padding: 8px 28px; }
+.idx-row { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 18px 0; border-bottom: 1px solid var(--hair); }
+.idx-row:last-child { border-bottom: 0; }
+.fig-sub { display: block; font-size: 14px; font-weight: 500; }
+.brief-line { display: grid; grid-template-columns: 72px 1fr; gap: 16px; align-items: baseline; padding: 18px 0 !important; }
+.flow-row { display: grid; grid-template-columns: 40px 1fr 110px; gap: 12px; align-items: center; margin-bottom: 8px; }
+.sector-row { display: grid; grid-template-columns: minmax(80px, 140px) 1fr 70px; gap: 12px; align-items: center; }
+.world-row { display: grid; grid-template-columns: 1fr auto 104px; gap: 16px; align-items: baseline; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- filters (Setups, Outlook) ---------- */
+.filters { display: flex; flex-wrap: wrap; gap: 14px 16px; align-items: center; margin-bottom: 16px; }
+.sort { margin-left: auto; display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--text-2); }
+
+/* ---------- stat tabs (Outlook) ---------- */
+.stat-tabs { display: flex; flex-wrap: wrap; gap: 8px 40px; border-bottom: 1px solid var(--line); }
+.stat-tabs button {
+  background: none; border: 0; border-bottom: 3px solid transparent; margin-bottom: -1px; padding: 8px 2px 14px;
+  font: inherit; text-align: left; cursor: pointer; color: var(--muted); min-height: var(--touch);
+}
+.stat-tabs button:hover { color: var(--text); }
+.stat-tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--amber); }
+.stat-n { display: block; font-size: 32px; font-weight: 600; line-height: 1.15; }
+.stat-l { display: block; font-size: 15px; font-weight: 600; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 900px) {
   .cols { gap: 40px; }
@@ -247,9 +277,16 @@ table.tbl { width: 100%; border-collapse: collapse; }
 }
 @media (max-width: 600px) {
   .wrap { padding: 0 16px; }
+  .hero { padding: 24px 0 48px; gap: 32px; }
+  .hero-title { font-size: 34px; }
+  .hero-idx { padding: 4px 20px; }
+  .brief-line { grid-template-columns: 52px 1fr; gap: 10px; }
+  .brief-line span:last-child { font-size: 16px !important; }
   .page-title { font-size: 32px; }
   .sec { padding-bottom: 48px; }
   .panel-pad { padding: 22px; }
   .tbl-pad { padding: 4px 18px; }
   .search { max-width: none; flex-basis: 100%; }
+  .stat-tabs { gap: 4px 22px; }
+  .stat-n { font-size: 24px; }
 }

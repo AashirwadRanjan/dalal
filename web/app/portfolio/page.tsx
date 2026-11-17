@@ -1,168 +1,148 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import HoldingForms from "@/components/HoldingForms";
-import { BIG_SECTOR_PCT, advise, type Action } from "@/lib/advice";
+import { ActionTag, Bar, type Action } from "@/components/ui";
+import { MAX_LOSS, MAX_WEIGHT, advise } from "@/lib/advice";
 import { getInstruments, getSetups, getStates } from "@/lib/db";
-import { inr, pct, tone } from "@/lib/format";
+import { inr, pct, rupees, toneOf } from "@/lib/format";
 import { listHoldings } from "@/lib/portfolio";
 import { removeHolding } from "./actions";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Portfolio" };
 
-const ACTION_ORDER: Action[] = ["Exit", "Review", "Add", "Hold"];
+const ORDER: Action[] = ["Exit", "Review", "Add", "Hold"];
 
 export default function PortfolioPage() {
   const holdings = listHoldings();
   const states = new Map(getStates().map((s) => [s.symbol, s]));
   const setups = getSetups();
 
-  const rows = holdings.map((h) => {
+  const base = holdings.map((h) => {
     const st = states.get(h.symbol);
-    const ltp = st?.close ?? null;
-    const invested = h.qty * h.avg_price;
-    const value = ltp != null ? h.qty * ltp : invested;
-    return { h, st, ltp, invested, value, pnl: value - invested };
+    const price = st?.close ?? null;
+    const cost = h.qty * h.avg_price;
+    const value = price != null ? h.qty * price : cost;
+    return { h, st, price, cost, value };
   });
-  const totalValue = rows.reduce((a, r) => a + r.value, 0);
-  const totalInvested = rows.reduce((a, r) => a + r.invested, 0);
-  const dayPnl = rows.reduce((a, r) => (r.st?.chg_1d != null ? a + (r.value - r.value / (1 + r.st.chg_1d)) : a), 0);
+  const total = base.reduce((a, r) => a + r.value, 0);
+  const invested = base.reduce((a, r) => a + r.cost, 0);
+  const day = base.reduce((a, r) => (r.st?.chg_1d != null ? a + (r.value - r.value / (1 + r.st.chg_1d)) : a), 0);
+  const rows = base
+    .map((r) => {
+      const weight = total ? (r.value / total) * 100 : 0;
+      return { ...r, weight, pl: r.value - r.cost, advice: advise(r.st, r.h.avg_price, weight, setups) };
+    })
+    .sort((a, b) => ORDER.indexOf(a.advice.action) - ORDER.indexOf(b.advice.action) || b.value - a.value);
 
-  const withAdvice = rows
-    .map((r) => ({ ...r, weight: totalValue ? (r.value / totalValue) * 100 : 0 }))
-    .map((r) => ({ ...r, advice: advise(r.st, r.h, r.weight, setups) }))
-    .sort((a, b) => ACTION_ORDER.indexOf(a.advice.action) - ACTION_ORDER.indexOf(b.advice.action) || b.value - a.value);
-
-  const sectorW = new Map<string, number>();
-  for (const r of withAdvice) {
-    const sec = r.st?.sector || "Unknown";
-    sectorW.set(sec, (sectorW.get(sec) ?? 0) + r.weight);
-  }
-  const sectors = [...sectorW].sort((a, b) => b[1] - a[1]);
-  const heavy = sectors.filter(([, w]) => w > BIG_SECTOR_PCT);
-  const counts = Object.fromEntries(ACTION_ORDER.map((a) => [a, withAdvice.filter((r) => r.advice.action === a).length]));
+  const n = (a: Action) => rows.filter((r) => r.advice.action === a).length;
+  const exits = n("Exit"), reviews = n("Review"), adds = n("Add");
+  const attention =
+    exits + reviews
+      ? {
+          title: `${exits + reviews} holding${exits + reviews === 1 ? " needs" : "s need"} a look`,
+          text: `${exits} exit rule${exits === 1 ? "" : "s"} and ${reviews} review${reviews === 1 ? "" : "s"} fired today.${adds ? ` ${adds} holding${adds === 1 ? " has" : "s have"} an add rule.` : ""}`,
+        }
+      : { title: "Nothing needs a look", text: `No exit or review rule fired today.${adds ? ` ${adds} holding${adds === 1 ? " has" : "s have"} an add rule.` : ""}` };
+  const pl = total - invested;
 
   return (
     <main className="wrap">
-      <h1 className="pagetitle">My portfolio</h1>
-      <p className="lede">
-        Enter what you hold and at what average price. Each holding gets a suggestion from a few fixed rules, with the
-        reason shown. The rules are listed at the bottom; they haven&apos;t been backtested, so use them as a checklist.
-      </p>
+      <section className="page-head">
+        <h1 className="page-title">Portfolio</h1>
+        <p className="page-lede">Your holdings, checked against the same rules as the rest of Dalal. They are stored only on this computer.</p>
+      </section>
 
-      {rows.length > 0 && (
+      {rows.length > 0 ? (
         <>
-          <div className="strip">
+          <div className="figs" style={{ paddingBottom: 36 }}>
+            <div><div className="fig-label">Value now</div><div className="fig-l">₹{inr(total, 0)}</div></div>
+            <div><div className="fig-label">Invested</div><div className="fig-l">₹{inr(invested, 0)}</div></div>
             <div>
-              <div className="label">Current value</div>
-              <div className="value num">₹{inr(totalValue, 0)}</div>
-              <div className="delta muted num">Invested ₹{inr(totalInvested, 0)}</div>
+              <div className="fig-label">Total profit or loss</div>
+              <div className={`fig-l ${toneOf(pl)}`}>{rupees(pl)}</div>
+              <div className={`mono ${toneOf(pl)}`} style={{ fontSize: 14 }}>{pct((pl / invested) * 100, 1)}</div>
             </div>
             <div>
-              <div className="label">Total P&amp;L</div>
-              <div className={`value num ${tone(totalValue - totalInvested)}`}>
-                {totalValue - totalInvested >= 0 ? "+" : "−"}₹{inr(Math.abs(totalValue - totalInvested), 0)}
-              </div>
-              <div className={`delta num ${tone(totalValue - totalInvested)}`}>
-                {pct(((totalValue - totalInvested) / totalInvested) * 100)}
-              </div>
-            </div>
-            <div>
-              <div className="label">Today</div>
-              <div className={`value num ${tone(dayPnl)}`}>{dayPnl >= 0 ? "+" : "−"}₹{inr(Math.abs(dayPnl), 0)}</div>
-              <div className={`delta num ${tone(dayPnl)}`}>{pct((dayPnl / (totalValue - dayPnl)) * 100)}</div>
-            </div>
-            <div>
-              <div className="label">Suggestions</div>
-              <div className="value num" style={{ fontSize: 16, paddingTop: 6 }}>
-                {ACTION_ORDER.filter((a) => counts[a]).map((a) => `${counts[a]} ${a}`).join(" · ")}
-              </div>
+              <div className="fig-label">Today</div>
+              <div className={`fig-l ${toneOf(day)}`}>{rupees(day)}</div>
             </div>
           </div>
 
-          {heavy.length > 0 && (
-            <p className="callout warnline">
-              Concentration: {heavy.map(([s, w]) => `${s} is ${w.toFixed(0)}%`).join(", ")} of your portfolio (above{" "}
-              {BIG_SECTOR_PCT}% in one sector). A bad day for that sector hits you hard.
-            </p>
-          )}
+          <div className="band" role="status">
+            <strong>{attention.title}</strong>
+            <span className="txt">{attention.text}</span>
+          </div>
 
-          <div className="tablewrap" style={{ marginTop: 20 }}>
-            <table className="pftable">
-              <thead>
-                <tr>
-                  <th>Stock</th>
-                  <th>Suggestion</th>
-                  <th>Qty</th>
-                  <th>Avg cost</th>
-                  <th>Price</th>
-                  <th>Value</th>
-                  <th>P&amp;L</th>
-                  <th>Weight</th>
-                  <th><span className="sr-only">Remove</span></th>
-                </tr>
-              </thead>
-              <tbody>
-                {withAdvice.map(({ h, st, ltp, value, pnl, invested, weight, advice }) => (
-                  <tr key={h.symbol}>
-                    <td>
-                      <Link href={`/stock/${encodeURIComponent(h.symbol)}`}>{h.symbol}</Link>
-                      <span className="name">{st?.name ?? "Not in Nifty 500 data"}</span>
-                    </td>
-                    <td className="advice">
-                      <span className={`pill pill-${advice.action.toLowerCase()}`}>{advice.action}</span>
-                      <span className="why">{advice.reason}</span>
-                      {advice.notes.map((n) => (
-                        <span key={n} className="why note">{n}</span>
-                      ))}
-                    </td>
-                    <td className="num">{h.qty.toLocaleString("en-IN")}</td>
-                    <td className="num">{inr(h.avg_price)}</td>
-                    <td className="num">
-                      {inr(ltp)}
-                      {st?.chg_1d != null && <span className={`name ${tone(st.chg_1d)}`}>{pct(st.chg_1d * 100)}</span>}
-                    </td>
-                    <td className="num">{inr(value, 0)}</td>
-                    <td className={`num ${tone(pnl)}`}>
-                      {pnl >= 0 ? "+" : "−"}{inr(Math.abs(pnl), 0)}
-                      <span className="name">{pct((pnl / invested) * 100)}</span>
-                    </td>
-                    <td className="num">{weight.toFixed(1)}%</td>
-                    <td>
-                      <form action={removeHolding}>
-                        <input type="hidden" name="symbol" value={h.symbol} />
-                        <button className="linkbtn" aria-label={`Remove ${h.symbol}`}>Remove</button>
-                      </form>
-                    </td>
+          <div style={{ marginTop: 32 }} className="panel tbl-wrap" role="region" aria-label="Holdings" tabIndex={0}>
+            <div className="tbl-pad" style={{ minWidth: 1040 }}>
+              <table className="tbl">
+                <thead>
+                  <tr>
+                    <th>Stock</th><th className="r">Qty</th><th className="r">Avg cost</th><th className="r">Price</th>
+                    <th className="r">Value</th><th className="r">Profit or loss</th><th style={{ width: "12%" }}>Share of portfolio</th>
+                    <th style={{ width: "26%" }}>Rule says</th><th><span className="sr-only">Remove</span></th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map(({ h, st, price, value, pl, cost, weight, advice }) => (
+                    <tr key={h.symbol}>
+                      <td>
+                        <Link className="sym" href={`/stock/${encodeURIComponent(h.symbol)}`}>{h.symbol}</Link>
+                        <span className="nm">{st?.name ?? "No price data"}</span>
+                      </td>
+                      <td className="n">{h.qty.toLocaleString("en-IN")}</td>
+                      <td className="n">{inr(h.avg_price)}</td>
+                      <td className="n">{inr(price)}</td>
+                      <td className="n">₹{inr(value, 0)}</td>
+                      <td className={`n ${toneOf(pl)}`}>
+                        {rupees(pl)}
+                        <span className="sub-n" style={{ color: "inherit" }}>{pct((pl / cost) * 100, 1)}</span>
+                      </td>
+                      <td>
+                        <span style={{ display: "grid", gridTemplateColumns: "1fr 48px", gap: 8, alignItems: "center" }}>
+                          <Bar value={Math.min(1, (weight * 2.2) / 100)} size="thin" tone={weight > MAX_WEIGHT ? "amber" : "flat"} />
+                          <span className="mono" style={{ fontSize: 13, textAlign: "right" }}>{weight.toFixed(1)}%</span>
+                        </span>
+                      </td>
+                      <td>
+                        <ActionTag action={advice.action} />
+                        <span style={{ display: "block", fontSize: 13, color: "var(--text-2)", marginTop: 4 }}>{advice.reason}</span>
+                      </td>
+                      <td>
+                        <form action={removeHolding}>
+                          <input type="hidden" name="symbol" value={h.symbol} />
+                          <button className="icon-btn" aria-label={`Remove ${h.symbol}`} title={`Remove ${h.symbol}`}>
+                            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                              <path d="M2 2l10 10M12 2 2 12" />
+                            </svg>
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-
-          <p className="sub" style={{ marginTop: 8 }}>
-            Sector split: {sectors.map(([s, w]) => `${s} ${w.toFixed(0)}%`).join(" · ")}
-          </p>
+          <div className="note" style={{ maxWidth: 820 }}>
+            Rules: Add means a leader with an open uptrend setup. Review means over {MAX_WEIGHT}% of the portfolio or down{" "}
+            {Math.abs(MAX_LOSS)}% or more from your cost. Exit means the stock closed below its trailing stop (the 22-day
+            high minus three average daily ranges). Hold means no rule fired. These are rules, not advice, and they have not
+            been backtested.
+          </div>
         </>
+      ) : (
+        <div className="panel" style={{ border: "1px dashed var(--chip-line)", padding: "40px 36px" }}>
+          <h2 className="sec-title" style={{ marginBottom: 8 }}>No holdings yet</h2>
+          <p style={{ margin: 0, maxWidth: 560, color: "var(--text-2)" }}>
+            Add what you own below, one stock at a time or pasted in bulk. Dalal will check each one against its rules and
+            flag anything that needs a look.
+          </p>
+        </div>
       )}
 
       <HoldingForms symbols={getInstruments()} />
-
-      <section className="method">
-        <h2>How suggestions are made</h2>
-        <p className="muted">The first rule that matches sets the suggestion:</p>
-        <ul>
-          <li><strong>Exit:</strong> the price closed below its trailing stop, the 22-day high minus 3 times the average daily range. A common way to let winners run and cut losers.</li>
-          <li><strong>Review:</strong> the stock is in a downtrend, below its 50- and 200-day averages with both falling.</li>
-          <li><strong>Add:</strong> the stock is in an uptrend and a bullish pattern setup fired on the latest close.</li>
-          <li><strong>Hold:</strong> none of the above. The trailing stop is the level to watch.</li>
-          <li>Notes for positions over 20% of the portfolio, gains over 50% and losses over 20% don&apos;t change the suggestion.</li>
-          <li>
-            <strong>Limits:</strong> prices are end-of-day, only Nifty 500 stocks can be analysed, and none of these rules
-            has been tested for profitability. The <Link href="/backtest">pattern backtest</Link> currently shows no
-            pattern with a reliable edge. Not investment advice.
-          </li>
-        </ul>
-        <p className="muted">Holdings are stored only on this computer, in <code>data/portfolio.db</code>.</p>
-      </section>
     </main>
   );
 }

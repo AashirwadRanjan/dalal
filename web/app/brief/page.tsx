@@ -1,36 +1,53 @@
+import type { Metadata } from "next";
 import Link from "next/link";
-import BriefView from "@/components/BriefView";
+import BriefLines from "@/components/BriefLines";
+import { DashedNotice, PageHead } from "@/components/ui";
 import { getBrief, getBriefDates } from "@/lib/db";
+import { dayLong, dayShort } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
+export const metadata: Metadata = { title: "Brief archive" };
 
 export default async function BriefPage({ searchParams }: { searchParams: Promise<{ date?: string }> }) {
   const { date } = await searchParams;
-  const brief = getBrief(date);
-  const dates = getBriefDates();
+  const dates = getBriefDates(120);
+  const brief = getBrief(date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : undefined);
+  const i = brief ? dates.indexOf(brief.date) : -1;
+  const older = i >= 0 ? dates[i + 1] : undefined;
+  const newer = i > 0 ? dates[i - 1] : undefined;
 
   return (
     <main className="wrap">
-      <h1 className="pagetitle">Daily brief{brief ? ` · ${brief.date}` : ""}</h1>
-      <p className="lede">
-        Written automatically after each data fetch, from the numbers on the dashboard. A new one appears every
-        trading day after the 6:45 pm run.
-      </p>
+      <PageHead
+        title="Brief archive"
+        lede="Each day’s brief, written from the data after the evening run. Pick a day to read it again."
+      />
+
+      <form method="get" action="/brief" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end", marginBottom: 32 }}>
+        <label className="field" style={{ minWidth: 240 }}>
+          Day
+          <select name="date" defaultValue={brief?.date} className="select" style={{ background: "var(--panel)" }}>
+            {dates.map((d) => (
+              <option key={d} value={d}>{dayShort(d)} {d.slice(0, 4)}</option>
+            ))}
+          </select>
+        </label>
+        <button className="btn btn-outline">Show</button>
+        <span style={{ display: "flex", gap: 20, marginLeft: "auto", fontSize: 15 }}>
+          {older ? <Link href={`/brief?date=${older}`}>← Earlier day</Link> : <span className="muted">← Earlier day</span>}
+          {newer ? <Link href={`/brief?date=${newer}`}>Later day →</Link> : <span className="muted">Later day →</span>}
+        </span>
+      </form>
+
       {brief ? (
-        <BriefView brief={brief} full />
+        <section aria-labelledby="day-h">
+          <div style={{ fontSize: 15, color: "var(--muted)", fontWeight: 500 }} id="day-h">{dayLong(brief.date)}</div>
+          {brief.hero && <h2 className="sec-title" style={{ fontSize: 30, margin: "8px 0 12px" }}>{brief.hero.headline}</h2>}
+          {brief.hero && <p style={{ margin: "0 0 28px", maxWidth: 640, fontSize: 17, color: "var(--text-2)" }}>{brief.hero.text}</p>}
+          <BriefLines lines={brief.lines ?? brief.headlines} />
+        </section>
       ) : (
-        <div className="empty"><p>No brief {date ? `for ${date}` : "yet"}. Click <strong>Fetch latest</strong> on the dashboard to build one.</p></div>
-      )}
-      {dates.length > 1 && (
-        <p className="sub" style={{ marginTop: 28 }}>
-          Earlier briefs:{" "}
-          {dates.map((d, i) => (
-            <span key={d}>
-              {i > 0 && " · "}
-              {d === brief?.date ? <strong>{d}</strong> : <Link href={`/brief?date=${d}`}>{d}</Link>}
-            </span>
-          ))}
-        </p>
+        <DashedNotice>{date ? `No brief was written for ${date}.` : "No brief yet. It is written after the first full run."}</DashedNotice>
       )}
     </main>
   );

@@ -8,7 +8,7 @@ import math
 
 import pandas as pd
 
-from engine.signals import backtest, patterns, state
+from engine.signals import backtest, patterns, state, timeframes
 
 STATE_COLS = ["date", "close", "chg_1d", "dma50", "dma200", "trend", "ret_1m", "ret_3m", "ret_6m",
               "rs_pct", "atr", "trail_stop", "hi52", "lo52", "volx", "low20", "breakdown",
@@ -69,8 +69,10 @@ def run(conn) -> str:
     snap["breakdown"] = snap["breakdown"].astype(bool).astype(int)
     state_rows = [(r["symbol"], *(_clean(r[c]) for c in STATE_COLS)) for _, r in snap.iterrows()]
 
+    tf_status, tf_stats, tf_note = timeframes.run(prices)
+
     with conn:  # one transaction: the dashboard never sees a half-rebuilt state
-        for t in ("signals", "trades", "pattern_stats", "stock_state"):
+        for t in ("signals", "trades", "pattern_stats", "stock_state", "tf_status", "tf_stats"):
             conn.execute(f"DELETE FROM {t}")
         conn.executemany("INSERT INTO signals (symbol, date, pattern, trend, entry, stop, target, detail) "
                          "VALUES (?,?,?,?,?,?,?,?)", sig_rows)
@@ -84,6 +86,8 @@ def run(conn) -> str:
             f"INSERT INTO stock_state (symbol, {', '.join(STATE_COLS)}) VALUES ({', '.join('?' * (len(STATE_COLS) + 1))})",
             state_rows,
         )
+        conn.executemany("INSERT INTO tf_status VALUES (?,?,?,?,?,?,?,?,?)", tf_status)
+        conn.executemany("INSERT INTO tf_stats VALUES (?,?,?)", tf_stats)
 
     closed = sum(t.outcome != "open" for t in all_trades)
-    return f"{len(sig_rows)} signals, {closed} closed backtest trades, {len(state_rows)} stock states"
+    return f"{len(sig_rows)} signals, {closed} closed backtest trades, {len(state_rows)} stock states; {tf_note}"

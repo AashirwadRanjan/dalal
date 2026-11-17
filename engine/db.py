@@ -91,6 +91,22 @@ CREATE TABLE IF NOT EXISTS stock_state (
     support REAL, resistance REAL  -- nearest confirmed swing low below / swing high above the close
 );
 
+-- Weekly (W) and monthly (M) setups from resampled bars (engine/signals/timeframes.py)
+CREATE TABLE IF NOT EXISTS tf_status (
+    symbol TEXT NOT NULL,
+    tf     TEXT NOT NULL,          -- W | M
+    status TEXT NOT NULL,          -- today | open | none | insufficient
+    pattern TEXT, signal_date TEXT, entry REAL, stop REAL, target REAL,
+    bars   INTEGER,                -- completed bars available for this stock
+    PRIMARY KEY (symbol, tf)
+);
+CREATE TABLE IF NOT EXISTS tf_stats (
+    tf      TEXT NOT NULL,
+    pattern TEXT NOT NULL,
+    stats   TEXT NOT NULL,         -- JSON: backtest.stats() plus bars_needed / bars_available
+    PRIMARY KEY (tf, pattern)
+);
+
 -- One market brief per trading day (engine/summary.py)
 CREATE TABLE IF NOT EXISTS daily_brief (
     date TEXT PRIMARY KEY,

@@ -6,7 +6,7 @@ import RealityCheck from "@/components/RealityCheck";
 import StockChart from "@/components/StockChart";
 import WatchStar from "@/components/WatchStar";
 import { ChangeFigure, DashedNotice, ReadTag, VerdictCard } from "@/components/ui";
-import { getNewsBundle, getPatternStats, getSetups, getState, getStock, getStockSignals, getTrades } from "@/lib/db";
+import { getNewsBundle, getPatternStats, getSetups, getState, getStock, getStockSignals, getTfStatus, getTrades, type TfStatus } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
 import { PATTERN_CODE, PATTERN_LABEL, PATTERN_ORDER, dayShort, inr } from "@/lib/format";
 import { isWatched } from "@/lib/portfolio";
@@ -58,7 +58,7 @@ export default async function StockPage({
                 <div className="mono" style={{ fontSize: 40, fontWeight: 600, lineHeight: 1.1 }}>₹{inr(st.close)}</div>
                 <div style={{ fontSize: 15 }}>
                   <ChangeFigure value={st.chg_1d != null ? st.chg_1d * 100 : null} />{" "}
-                  <span className="mono muted">{dayShort(st.date)}</span>
+                  <span className="mono muted" style={{ marginLeft: 8 }}>{dayShort(st.date)}</span>
                 </div>
               </div>
             )}
@@ -103,6 +103,7 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
   const byDay = new Map<string, string[]>();
   for (const s of signals) byDay.set(s.date, [...(byDay.get(s.date) ?? []), PATTERN_CODE[s.pattern] ?? "?"]);
   const markers = [...byDay].map(([date, codes]) => ({ date, label: codes.join(" ") }));
+  const tfs = getTfStatus(symbol);
   const dailyLabel = short.status === "open" ? "Long setup open" : short.status === "today" ? "Long setup today" : "No setup";
 
   return (
@@ -122,16 +123,19 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
             <div className="fig-label" style={{ marginBottom: 8 }}>By chart timeframe</div>
             {[
               ["Daily", dailyLabel, short.status === "none" ? "flat" : "ok"],
-              ["Weekly", "Not calculated yet", "flat"],
-              ["Monthly", "Not calculated yet", "flat"],
+              ["Weekly", ...tfLabel(tfs.find((t) => t.tf === "W"), "week")],
+              ["Monthly", ...tfLabel(tfs.find((t) => t.tf === "M"), "month")],
             ].map(([f, s, d]) => (
               <div key={f} style={{ display: "grid", gridTemplateColumns: "100px 1fr", padding: "6px 0" }}>
                 <span>{f}</span>
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8, color: s === "Not calculated yet" ? "var(--muted)" : undefined }}>
-                  <span className={`dot ${d}`} aria-hidden="true" />{s}
+                <span style={{ display: "inline-flex", alignItems: "baseline", gap: 8, color: d === "flat" ? "var(--muted)" : undefined }}>
+                  <span className={`dot ${d}`} aria-hidden="true" style={{ transform: "translateY(-1px)" }} />{s}
                 </span>
               </div>
             ))}
+            <p style={{ margin: "8px 0 0", fontSize: 13, color: "var(--muted)" }}>
+              Weekly and monthly use completed bars only. Their backtests are separate; see the backtest page.
+            </p>
           </div>
           <p style={{ margin: "20px 0 0", fontSize: 14, color: "var(--text-2)" }}>
             Short side: no setup, long-only engine. In India, shorting a stock is possible only intraday or through futures.
@@ -162,6 +166,15 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
       )}
     </>
   );
+}
+
+function tfLabel(t: TfStatus | undefined, unit: string): [string, string] {
+  if (!t) return ["Not calculated yet", "flat"];
+  if (t.status === "insufficient") return [`Not enough history: ${t.bars} ${unit}s, needs 60`, "flat"];
+  const p = t.pattern ? PATTERN_LABEL[t.pattern].toLowerCase() : "setup";
+  if (t.status === "today") return [`Long setup on the last completed ${unit} (${p})`, "ok"];
+  if (t.status === "open") return [`Long setup open (${p}, ${unit} of ${dayShort(t.signal_date)})`, "ok"];
+  return ["No setup", "flat"];
 }
 
 function CheckRow({ c }: { c: Check }) {

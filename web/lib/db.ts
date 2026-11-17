@@ -415,3 +415,27 @@ export function getNewsBundle(symbol: string): NewsBundle {
     }) ?? empty
   );
 }
+
+// ---- Weekly / monthly setups (engine/signals/timeframes.py) ----
+
+export type TfStatus = {
+  tf: "W" | "M"; status: "today" | "open" | "none" | "insufficient";
+  pattern: string | null; signal_date: string | null; entry: number | null; stop: number | null; target: number | null; bars: number;
+};
+export type TfStats = PatternStats & { tf: "W" | "M"; bars_needed?: number; bars_available?: number };
+
+export function getTfStatus(symbol: string): TfStatus[] {
+  return withDb((db) => (hasTable(db, "tf_status") ? (db.prepare("SELECT * FROM tf_status WHERE symbol = ?").all(symbol) as TfStatus[]) : [])) ?? [];
+}
+
+export function getTfStats(): TfStats[] {
+  return (
+    withDb((db) =>
+      hasTable(db, "tf_stats")
+        ? (db.prepare("SELECT tf, pattern, stats FROM tf_stats").all() as { tf: "W" | "M"; pattern: string; stats: string }[]).map(
+            (r) => ({ tf: r.tf, pattern: r.pattern, ...JSON.parse(r.stats) }) as TfStats
+          )
+        : []
+    ) ?? []
+  );
+}

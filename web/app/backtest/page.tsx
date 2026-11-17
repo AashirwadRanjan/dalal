@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import RunningTotal from "@/components/RunningTotal";
 import { DashedNotice, PageHead, TablePanel } from "@/components/ui";
-import { getEquity, getPatternStats, getTrades } from "@/lib/db";
+import { getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
 import { OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, dayMonth, frac, signed, toneOf } from "@/lib/format";
 
@@ -73,6 +73,8 @@ export default function BacktestPage() {
               </table>
             </TablePanel>
           </section>
+
+          <WeeklyMonthly />
 
           <section style={{ paddingTop: 56 }}>
             <div className="sec-head">
@@ -153,5 +155,49 @@ export default function BacktestPage() {
         </>
       )}
     </main>
+  );
+}
+
+function WeeklyMonthly() {
+  const all = getTfStats();
+  const weekly = all.filter((s) => s.tf === "W" && s.trades > 0);
+  const monthly = all.find((s) => s.tf === "M");
+  return (
+    <section style={{ paddingTop: 56 }}>
+      <h2 className="sec-title">Weekly bars</h2>
+      <p className="sec-sub">
+        The same three patterns run on completed weekly bars and tested separately. Fewer trades means more luck in the numbers,
+        and this is the same two-year, in-sample period, so treat any positive result as a lead to test, not an edge.
+      </p>
+      {weekly.length ? (
+        <TablePanel minWidth={760}>
+          <table className="tbl">
+            <thead>
+              <tr><th>Pattern</th><th className="r">Trades</th><th className="r">Win rate</th><th className="r">Average R</th><th className="r">Profit factor</th><th className="r">Total R</th></tr>
+            </thead>
+            <tbody>
+              {weekly.map((s) => (
+                <tr key={s.pattern}>
+                  <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                  <td className="n">{s.trades}</td>
+                  <td className="n">{s.win_rate}%</td>
+                  <td className={`n ${toneOf(s.avg_r)}`}>{signed(s.avg_r, 3)}</td>
+                  <td className="n">{s.profit_factor?.toFixed(2) ?? "–"}</td>
+                  <td className={`n ${toneOf(s.total_r)}`}>{signed(s.total_r, 1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TablePanel>
+      ) : (
+        <DashedNotice>No weekly trades yet.</DashedNotice>
+      )}
+      {monthly && (monthly.bars_available ?? 0) < (monthly.bars_needed ?? 60) && (
+        <p className="note">
+          Monthly bars: not enough history yet ({monthly.bars_available} months stored, the patterns need {monthly.bars_needed}). A
+          longer price history would make them possible.
+        </p>
+      )}
+    </section>
   );
 }

@@ -1,44 +1,107 @@
+/** Formatting shared by every page. Numbers use Indian grouping and a real minus sign (U+2212). */
+
+const MINUS = "−";
+
+/** 25387.4 -> "25,387.40" */
 export const inr = (n: number | null | undefined, d = 2) =>
-  n == null ? "–" : n.toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d });
+  n == null || !Number.isFinite(n)
+    ? "–"
+    : `${n < 0 ? MINUS : ""}${Math.abs(n).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d })}`;
 
-export const pct = (n: number | null | undefined) =>
-  n == null ? "–" : `${n > 0 ? "+" : ""}${n.toFixed(2)}%`;
+/** Signed number: +4,195.38 / −3,519.05 */
+export const signed = (n: number | null | undefined, d = 2) =>
+  n == null || !Number.isFinite(n) ? "–" : `${n > 0 ? "+" : n < 0 ? MINUS : ""}${inr(Math.abs(n), d)}`;
 
-export const crore = (n: number | null | undefined) =>
-  n == null ? "–" : `${n > 0 ? "+" : ""}${Math.round(n).toLocaleString("en-IN")} Cr`;
+/** Percent value (already ×100) with sign: +0.38% */
+export const pct = (n: number | null | undefined, d = 2) =>
+  n == null || !Number.isFinite(n) ? "–" : `${signed(n, d)}%`;
 
-export const tone = (n: number | null | undefined) =>
-  n == null || n === 0 ? "" : n > 0 ? "up" : "down";
+/** Fraction (0.123) to signed percent text (+12.3%) */
+export const frac = (n: number | null | undefined, d = 1) => (n == null ? "–" : pct(n * 100, d));
+
+/** Rupees with sign: +₹77,646 / −₹1,879 */
+export const rupees = (n: number | null | undefined, d = 0) =>
+  n == null ? "–" : `${n > 0 ? "+" : n < 0 ? MINUS : ""}₹${inr(Math.abs(n), d)}`;
+
+/** Net flow in crore: +₹4,195 Cr */
+export const crore = (n: number | null | undefined) => (n == null ? "–" : `${rupees(n)} Cr`);
+
+/** Signed multiple of risk, e.g. +1.85R */
+export const rMult = (n: number | null | undefined, d = 2) => (n == null ? "–" : `${signed(n, d)}R`);
+
+export type Tone = "up" | "down" | "flat";
+export const toneOf = (n: number | null | undefined): Tone => (n == null || n === 0 ? "flat" : n > 0 ? "up" : "down");
+/** Legacy class helper: "up" | "down" | "" */
+export const tone = (n: number | null | undefined) => (n == null || n === 0 ? "" : n > 0 ? "up" : "down");
 
 export const change = (close: number | null, prev: number | null) =>
   close != null && prev != null && prev !== 0 ? ((close - prev) / prev) * 100 : null;
+
+// ---- dates (ISO "YYYY-MM-DD" strings; formatted in UTC so the day never shifts) ----
+
+const asDate = (iso: string) => new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+const fmt = (iso: string, o: Intl.DateTimeFormatOptions) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", ...o }).format(asDate(iso)).replace(",", "");
+
+/** "Tue 17 Nov" */
+export const dayShort = (iso: string | null | undefined) =>
+  iso ? fmt(iso, { weekday: "short", day: "numeric", month: "short" }) : "–";
+/** "Tuesday 17 November" */
+export const dayLong = (iso: string | null | undefined) =>
+  iso ? fmt(iso, { weekday: "long", day: "numeric", month: "long" }) : "–";
+/** "17 Nov" */
+export const dayMonth = (iso: string | null | undefined) => (iso ? fmt(iso, { day: "numeric", month: "short" }) : "–");
+/** "Nov 2026" */
+export const monthYear = (iso: string | null | undefined) => (iso ? fmt(iso, { month: "short", year: "numeric" }) : "–");
+
+/** SQLite UTC "2026-11-17 12:43:21" -> "Tue 17 Nov, 6:13 pm" in India time */
+export const runTime = (utc: string | null | undefined) => {
+  if (!utc) return "–";
+  const d = new Date(`${utc.replace(" ", "T")}Z`);
+  const day = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", weekday: "short", day: "numeric", month: "short" })
+    .format(d)
+    .replace(",", "");
+  const time = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit" })
+    .format(d)
+    .toLowerCase();
+  return `${day}, ${time}`;
+};
+
+// ---- labels ----
 
 export const PATTERN_LABEL: Record<string, string> = {
   breakout: "Breakout",
   volume_spike: "Volume spike",
   support_bounce: "Support bounce",
 };
+export const PATTERN_PLURAL: Record<string, string> = {
+  breakout: "breakouts",
+  volume_spike: "volume spikes",
+  support_bounce: "support bounces",
+};
+export const PATTERN_ORDER = ["breakout", "volume_spike", "support_bounce"];
 /** One-letter chart marker codes; full names in the key under the chart */
 export const PATTERN_CODE: Record<string, string> = { breakout: "B", volume_spike: "V", support_bounce: "S" };
-export const PATTERN_ORDER = ["breakout", "volume_spike", "support_bounce"];
+/** Fixed series colour per pattern (backtest board): amber, sky, up */
+export const PATTERN_COLOR: Record<string, string> = {
+  breakout: "var(--amber)",
+  volume_spike: "var(--sky)",
+  support_bounce: "var(--up)",
+};
 
 export const OUTCOME_LABEL: Record<string, string> = {
   target: "Target hit",
   stop: "Stopped out",
-  time: "Time exit",
-  open: "Open",
+  time: "Time limit",
+  open: "Still open",
 };
-
-/** Signed multiple of risk, e.g. +1.85R */
-export const rMult = (n: number | null | undefined, d = 2) =>
-  n == null ? "–" : `${n > 0 ? "+" : ""}${n.toFixed(d)}R`;
 
 export const TREND_LABEL: Record<string, string> = {
-  up: "Uptrend",
+  up: "Up",
   sideways: "Sideways",
-  down: "Downtrend",
-  unknown: "Not enough history",
+  down: "Down",
+  unknown: "Unclear",
 };
 
-/** Fraction (0.123) to signed percent text (+12.30%) */
-export const frac = (n: number | null | undefined) => (n == null ? "–" : pct(n * 100));
+/** Plural helper: plural(3, "setup") -> "3 setups" */
+export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString("en-IN")} ${n === 1 ? one : many}`;

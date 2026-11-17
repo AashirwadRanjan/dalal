@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Nav from "@/components/Nav";
 import { notFound } from "next/navigation";
 import Candles from "@/components/Candles";
 import { OUTCOME_LABEL, PATTERN_CODE, PATTERN_LABEL, PATTERN_ORDER, change, inr, pct, rMult, tone } from "@/lib/format";
@@ -38,7 +37,6 @@ export default async function StockPage({ params }: { params: Promise<{ symbol: 
 
   return (
     <main className="wrap">
-      <Nav />
 
       <div className="stockhead">
         <h1>{inst.symbol}</h1>

@@ -1,7 +1,5 @@
 import BriefView from "@/components/BriefView";
 import FlowBars from "@/components/FlowBars";
-import Nav from "@/components/Nav";
-import RefreshButton from "@/components/RefreshButton";
 import Screener from "@/components/Screener";
 import Setups from "@/components/Setups";
 import { change, crore, inr, pct, tone } from "@/lib/format";
@@ -33,15 +31,6 @@ export default function Home() {
 
   return (
     <main className="wrap">
-      <Nav>
-        <span className="asof">
-          Prices as of {fresh.latestPriceDate ?? "–"}
-          {fresh.failedSteps.length > 0 && (
-            <span className="warn"> · last run failed: {fresh.failedSteps.join(", ")}</span>
-          )}
-          {" "}<RefreshButton />
-        </span>
-      </Nav>
 
       {brief && <BriefView brief={brief} />}
 

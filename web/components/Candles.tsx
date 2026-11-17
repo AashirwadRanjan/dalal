@@ -20,7 +20,7 @@ export default function Candles({
     if (!el) return;
     const css = getComputedStyle(document.documentElement);
     const v = (n: string) => css.getPropertyValue(n).trim();
-    const up = v("--up"), down = v("--down"), muted = v("--muted"), line = v("--line");
+    const up = v("--up"), down = v("--down"), muted = v("--muted"), line = v("--hair"), volume = v("--volume");
 
     const chart = createChart(el, {
       autoSize: true,
@@ -39,15 +39,15 @@ export default function Candles({
     const vol = chart.addSeries(HistogramSeries, { priceFormat: { type: "volume" }, priceScaleId: "" });
     vol.priceScale().applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
     vol.setData(
-      candles.map((c) => ({ time: c.date, value: c.volume ?? 0, color: c.close >= c.open ? up + "88" : down + "88" }))
+      candles.map((c) => ({ time: c.date, value: c.volume ?? 0, color: volume }))
     );
 
     createSeriesMarkers(
       price,
-      markers.map((m) => ({ time: m.date, position: "belowBar" as const, shape: "arrowUp" as const, color: v("--link"), text: m.label }))
+      markers.map((m) => ({ time: m.date, position: "belowBar" as const, shape: "arrowUp" as const, color: v("--amber"), text: m.label }))
     );
     if (levels) {
-      const ink = v("--ink");
+      const ink = v("--text");
       const line = (p: number, color: string, title: string, style = LineStyle.Dashed) =>
         price.createPriceLine({ price: p, color, title, lineWidth: 1, lineStyle: style, axisLabelVisible: true });
       line(levels.entry, ink, "Entry", LineStyle.Dotted);

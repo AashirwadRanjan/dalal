@@ -1,6 +1,5 @@
 import Link from "next/link";
 import BriefView from "@/components/BriefView";
-import Nav from "@/components/Nav";
 import { getBrief, getBriefDates } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +11,6 @@ export default async function BriefPage({ searchParams }: { searchParams: Promis
 
   return (
     <main className="wrap">
-      <Nav />
       <h1 className="pagetitle">Daily brief{brief ? ` · ${brief.date}` : ""}</h1>
       <p className="lede">
         Written automatically after each data fetch, from the numbers on the dashboard. A new one appears every

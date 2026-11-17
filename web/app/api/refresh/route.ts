@@ -16,7 +16,8 @@ let lastResult: Result | null = null;
 
 function runEngine() {
   return new Promise<Result>((resolve) => {
-    const child = spawn(PYTHON, ["-m", "engine.run_daily"], { cwd: ROOT });
+    // The engine lives outside web/; tell Turbopack not to trace the whole repo into the server bundle.
+    const child = spawn(/*turbopackIgnore: true*/ PYTHON, ["-m", "engine.run_daily"], { cwd: ROOT });
     let output = "";
     child.stdout.on("data", (d) => (output += d));
     child.stderr.on("data", (d) => (output += d));

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Nav from "@/components/Nav";
 import { getPatternStats, getSetups, getStates, type StockState } from "@/lib/db";
 import { PATTERN_LABEL, frac, inr, pct, rMult, tone } from "@/lib/format";
 
@@ -65,7 +64,6 @@ export default function OutlookPage() {
 
   return (
     <main className="wrap">
-      <Nav />
       <h1 className="pagetitle">Outlook</h1>
       <p className="lede">
         Screens over the Nifty 500 as of the {date ?? "latest"} close: what&apos;s strong, what&apos;s pulling back to a

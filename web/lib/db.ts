@@ -353,3 +353,25 @@ export function getInstruments(): { symbol: string; name: string }[] {
     ) ?? []
   );
 }
+
+// ---- Run status (header status line, footer, /health) ----
+
+export type StepRun = { step: string; status: "ok" | "failed"; ran_at: string; detail: string | null };
+export type RunStatus = { latestPriceDate: string | null; steps: StepRun[]; lastRun: string | null };
+
+/** Latest log row per step, in pipeline order. */
+export function getRunStatus(): RunStatus {
+  return (
+    withDb((db) => {
+      const latest = db.prepare("SELECT MAX(date) AS d FROM prices_daily").get() as { d: string | null };
+      const steps = db
+        .prepare(
+          `SELECT step, status, ran_at, detail FROM ingest_log l
+           WHERE id = (SELECT MAX(id) FROM ingest_log WHERE step = l.step) ORDER BY id`
+        )
+        .all() as StepRun[];
+      const lastRun = steps.reduce<string | null>((a, s) => (a && a > s.ran_at ? a : s.ran_at), null);
+      return { latestPriceDate: latest.d, steps, lastRun };
+    }) ?? { latestPriceDate: null, steps: [], lastRun: null }
+  );
+}

@@ -1,6 +1,5 @@
 import Link from "next/link";
 import HoldingForms from "@/components/HoldingForms";
-import Nav from "@/components/Nav";
 import { BIG_SECTOR_PCT, advise, type Action } from "@/lib/advice";
 import { getInstruments, getSetups, getStates } from "@/lib/db";
 import { inr, pct, tone } from "@/lib/format";
@@ -43,7 +42,6 @@ export default function PortfolioPage() {
 
   return (
     <main className="wrap">
-      <Nav />
       <h1 className="pagetitle">My portfolio</h1>
       <p className="lede">
         Enter what you hold and at what average price. Each holding gets a suggestion from a few fixed rules, with the

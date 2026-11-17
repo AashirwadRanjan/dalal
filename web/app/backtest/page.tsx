@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Nav from "@/components/Nav";
 import EquityCurve from "@/components/EquityCurve";
 import { getEquity, getPatternStats, getTrades } from "@/lib/db";
 import { OUTCOME_LABEL, PATTERN_LABEL, PATTERN_ORDER, TREND_LABEL, inr, pct, rMult, tone } from "@/lib/format";
@@ -13,7 +12,6 @@ export default function BacktestPage() {
 
   return (
     <main className="wrap">
-      <Nav />
       <h1 className="pagetitle">Pattern backtest</h1>
       <p className="lede">
         Every signal over the last two years, traded mechanically. Results are in <strong>R</strong>, multiples of

@@ -38,5 +38,6 @@ def indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["volx"] = v / avg_v.where(avg_v > 0)
     # Breakdown: first close below the prior 20-day low, on volume
     low20 = l.shift(1).rolling(20).min()
+    out["low20"] = low20
     out["breakdown"] = (c < low20) & (c.shift(1) >= low20.shift(1)) & (out["volx"] >= 1.5)
     return out

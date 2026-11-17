@@ -61,6 +61,29 @@ class Build(unittest.TestCase):
             summary.build(conn)
 
 
+class TodayText(unittest.TestCase):
+    def conn(self, prev_fii):
+        c = make_conn([("A", "Realty", 3), ("B", "Realty", 2), ("C", "Realty", 1), ("D", "IT", -1)])
+        c.execute("INSERT INTO fii_dii_daily (date, fii_net, dii_net) VALUES ('2026-11-16', ?, -10)", (prev_fii,))
+        return c
+
+    def test_hero_streak_and_leading_sector(self):
+        d = summary.build(self.conn(4864.68))
+        self.assertEqual(d["hero"]["headline"], "Foreign money kept coming in, and Realty led the way.")
+        self.assertTrue(d["hero"]["text"].startswith("Foreign investors bought a net ₹4,195 Cr and Indian funds added ₹197 Cr."))
+
+    def test_hero_turned_buyers(self):
+        d = summary.build(self.conn(-500))
+        self.assertTrue(d["hero"]["headline"].startswith("Foreign investors turned buyers"))
+
+    def test_five_brief_lines_with_tones(self):
+        lines = summary.build(self.conn(1))["lines"]
+        self.assertEqual(len(lines), 5)
+        self.assertEqual(lines[0], {"tone": "up", "text": "Realty led the sectors, up 2.00%."})
+        self.assertEqual(lines[3]["tone"], "down")  # Nasdaq fell in make_conn
+        self.assertEqual(lines[4]["text"], "No setups today.")
+
+
 class Run(unittest.TestCase):
     def test_one_row_per_day(self):
         conn = make_conn([("A", "X", 1), ("B", "X", -1)])

@@ -70,7 +70,8 @@ def build(conn) -> dict:
 
     india, glob = _series(conn, "india"), _series(conn, "global")
     flows = _rows(conn, "SELECT date, fii_net, dii_net FROM fii_dii_daily ORDER BY date DESC LIMIT 5")
-    setups = _rows(conn, "SELECT pattern, COUNT(*) n FROM signals WHERE date = ? GROUP BY pattern", date)
+    setups = _rows(conn, """SELECT pattern, COUNT(*) n FROM signals WHERE date = ? GROUP BY pattern
+        ORDER BY CASE pattern WHEN 'breakout' THEN 0 WHEN 'volume_spike' THEN 1 ELSE 2 END""", date)
 
     data = {
         "date": date,
@@ -87,7 +88,113 @@ def build(conn) -> dict:
         "breakdowns": sum(bool(s["breakdown"]) for s in stocks),
     }
     data["headlines"] = headlines(data)
+    data["hero"] = hero(data)
+    data["lines"] = brief_lines(data)
     return data
+
+
+# ---- Today page: hero headline + paragraph, and five tagged brief lines -------------------------------
+
+
+def _fii_phrase(flows) -> str | None:
+    """'Foreign money kept coming in' / 'Foreign investors kept selling' / single-day variants."""
+    if not flows or flows[0]["fii_net"] is None:
+        return None
+    today = flows[0]["fii_net"]
+    prev = flows[1]["fii_net"] if len(flows) > 1 else None
+    same = prev is not None and (prev > 0) == (today > 0)
+    if today > 0:
+        return "Foreign money kept coming in" if same else "Foreign investors turned buyers"
+    return "Foreign investors kept selling" if same else "Foreign investors turned sellers"
+
+
+def hero(d: dict) -> dict:
+    idx = {i["name"]: i for i in d["indices"]}
+    nifty = idx.get("Nifty 50")
+    up_day = bool(nifty and nifty["chg"] > 0)
+
+    first = _fii_phrase(d["flows"])
+    if first is None and nifty:
+        first = f"Nifty {'rose' if up_day else 'fell'} {abs(nifty['chg']):.2f}%"
+    second = None
+    if up_day and d["sectors_top"] and d["sectors_top"][0]["chg"] > 0:
+        second = f"{d['sectors_top'][0]['sector']} led the way"
+    elif not up_day and d["sectors_bottom"] and d["sectors_bottom"][0]["chg"] < 0:
+        second = f"{d['sectors_bottom'][0]['sector']} fell the most"
+    headline = (f"{first}, and {second}." if first and second else f"{first or second or 'A quiet day'}.")
+
+    parts = []
+    if d["flows"] and d["flows"][0]["fii_net"] is not None:
+        parts.append(_flows_sentence(d["flows"][0]))
+    b = d["breadth"]
+    p50 = b["pct_above_50dma"]
+    if up_day and p50 < 60:
+        parts.append(f"Only {p50:.1f}% of stocks are above their 50-day average, so the rise is not broad yet.")
+    elif up_day:
+        parts.append(f"{p50:.1f}% of stocks are above their 50-day average, so the rise is broad.")
+    elif p50 < 40:
+        parts.append(f"Only {p50:.1f}% of stocks are above their 50-day average, so the market is weak underneath.")
+    else:
+        parts.append(f"{p50:.1f}% of stocks are still above their 50-day average.")
+    return {"headline": headline, "text": " ".join(parts)}
+
+
+def _flows_sentence(f) -> str:
+    fii, dii = f["fii_net"], f["dii_net"]
+    a = f"Foreign investors {'bought' if fii > 0 else 'sold'} a net ₹{abs(round(fii)):,} Cr"
+    if dii is None:
+        return a + "."
+    return a + f" and Indian funds {'added' if dii > 0 else 'took out'} ₹{abs(round(dii)):,} Cr."
+
+
+def brief_lines(d: dict) -> list[dict]:
+    """Five lines for Today's brief: sectors, flows, breadth, world, setups. tone: up | flat | down."""
+    out = []
+
+    def line(text, x=0.0):
+        out.append({"tone": "up" if x > 0 else "down" if x < 0 else "flat", "text": text})
+
+    top, bot = d["sectors_top"], d["sectors_bottom"]
+    if top and top[0]["chg"] > 0:
+        t = f"{top[0]['sector']} led the sectors, up {top[0]['chg']:.2f}%"
+        if len(top) > 1 and top[1]["chg"] > 0:
+            t += f", followed by {top[1]['sector']} at {top[1]['chg']:.2f}%"
+        line(t + ".", 1)
+    elif bot:
+        line(f"{bot[0]['sector']} fell the most, down {abs(bot[0]['chg']):.2f}%.", -1)
+
+    if d["flows"] and d["flows"][0]["fii_net"] is not None:
+        line(_flows_sentence(d["flows"][0]), d["flows"][0]["fii_net"])
+    else:
+        line("Foreign and Indian fund flows are not available for today.")
+
+    b = d["breadth"]
+    p50, p200 = b["pct_above_50dma"], b["pct_above_200dma"]
+    line(f"{p50:.1f}% of stocks are above their 50-day average and {p200:.1f}% are above their 200-day.",
+         1 if p50 >= 60 else -1 if p50 <= 40 else 0)
+
+    g = {x["name"]: x for x in d["global"]}
+    us = max((g[k] for k in ("Nasdaq", "S&P 500") if k in g), key=lambda x: abs(x["chg"]), default=None)
+    parts = []
+    if us:
+        verb = "rose" if us["chg"] > 0 else "fell" if us["chg"] < 0 else "was flat"
+        parts.append(f"{us['name']} {verb} {abs(us['chg']):.2f}% overnight" if us["chg"] else f"{us['name']} was flat overnight")
+    fx = g.get("USD/INR")
+    if fx and fx["chg"]:
+        parts.append(f"USD/INR {'rose' if fx['chg'] > 0 else 'slipped'} {abs(fx['chg']):.2f}% to {fx['close']:.2f}")
+    if parts:
+        line(" and ".join(parts) + ".", us["chg"] if us else 0)
+
+    names = {"breakout": ("breakout", "breakouts"), "volume_spike": ("volume spike", "volume spikes"),
+             "support_bounce": ("support bounce", "support bounces")}
+    n = sum(d["setups"].values())
+    if n:
+        bits = [f"{c} {names[p][0] if c == 1 else names[p][1]}" for p, c in d["setups"].items() if p in names and c]
+        joined = bits[0] if len(bits) == 1 else ", ".join(bits[:-1]) + " and " + bits[-1]
+        line(f"{n} setup{'s' if n != 1 else ''} today: {joined}.")
+    else:
+        line("No setups today.")
+    return out
 
 
 def headlines(d: dict) -> list[dict]:

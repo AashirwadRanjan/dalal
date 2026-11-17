@@ -11,7 +11,7 @@ import pandas as pd
 from engine.signals import backtest, patterns, state
 
 STATE_COLS = ["date", "close", "chg_1d", "dma50", "dma200", "trend", "ret_1m", "ret_3m", "ret_6m",
-              "rs_pct", "atr", "trail_stop", "hi52", "lo52", "volx", "breakdown"]
+              "rs_pct", "atr", "trail_stop", "hi52", "lo52", "volx", "low20", "breakdown"]
 
 
 def _clean(x):

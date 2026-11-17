@@ -83,6 +83,7 @@ CREATE TABLE IF NOT EXISTS stock_state (
     ret_1m REAL, ret_3m REAL, ret_6m REAL,
     rs_pct REAL,                   -- 6-month return percentile across the universe, 0-100
     atr REAL, trail_stop REAL, hi52 REAL, lo52 REAL, volx REAL,
+    low20 REAL,                    -- prior 20-day low (the level a breakdown closes below)
     breakdown INTEGER
 );
 
@@ -103,7 +104,7 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 
 
 # Derived tables are rebuilt every run, so an outdated layout is simply dropped and recreated.
-DERIVED_COLUMNS = {"signals": "trend", "trades": "trend"}
+DERIVED_COLUMNS = {"signals": "trend", "trades": "trend", "stock_state": "low20"}
 
 
 def connect() -> sqlite3.Connection:

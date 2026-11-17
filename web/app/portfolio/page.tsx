@@ -131,6 +131,7 @@ export default function PortfolioPage() {
             high minus three average daily ranges). Hold means no rule fired. These are rules, not advice, and they have not
             been backtested.
           </div>
+          <p className="note"><a href="/api/export/holdings" download style={{ fontWeight: 500 }}>Download holdings as CSV</a></p>
         </>
       ) : (
         <div className="panel" style={{ border: "1px dashed var(--chip-line)", padding: "40px 36px" }}>

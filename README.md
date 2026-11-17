@@ -1,27 +1,33 @@
 # Dalal
 
-Personal dashboard for the Indian market: prices, FII/DII flows, global cues, a stock screener, candlestick charts,
-a pattern engine with backtests, a daily brief, outlook screens and a portfolio checker.
-Built for one user, run locally. Python engine writes to one SQLite file; Next.js reads it.
+Personal research dashboard for the Indian market, for one person, run locally on end-of-day data.
+A Python engine writes one SQLite file (`data/market.db`); a Next.js app reads it.
+Personal research tool. Not investment advice.
 
 ```
-engine/          Python: fetches data, writes data/market.db
-  ingest/        prices, indices/global series, FII/DII, Nifty 500 list
-  signals/       pattern detectors, backtester, per-stock trend state
-  summary.py     daily brief (rule-based headlines)
-web/             Next.js dashboard over data/market.db
-data/            market.db and portfolio.db live here (gitignored)
+engine/            Python: fetches data, computes everything, writes data/market.db
+  ingest/          Nifty 500 list, daily prices, indices and world series, FII/DII, FII/DII CSV import
+  signals/         pattern detectors, backtester (walk-forward, per year, benchmark), trend and indicator
+                   state, weekly/monthly setups
+  summary.py       daily brief: hero, five brief lines, headlines (rule-based, from the data)
+  alerts.py        Telegram alert after the daily run (optional)
+web/               Next.js 16 app over data/market.db (dark design, IBM Plex)
+scripts/           install-schedule.sh (launchd), test.sh
+data/              market.db, portfolio.db (holdings + watchlist), engine.log (all gitignored)
 ```
 
 ## Pages
 
-| Page | What it shows |
+| Route | What it shows |
 |---|---|
-| Dashboard | Daily brief headlines, indices, FII/DII flows, global cues, today's pattern setups, stock screener |
-| Daily brief | Full brief: breadth, movers, unusual volume, sector leaders/laggards; earlier days browsable |
-| Outlook | Long setups in uptrends, pullbacks in leaders, leaders to hold, weak stocks (avoid / short via F&O), breakdowns |
-| Portfolio | Your holdings with P&L and an Add / Hold / Review / Exit suggestion per stock, with the rule that produced it |
-| Backtest | Per-pattern results in R, split by trend, cumulative curve, recent trades |
+| `/` Today | Generated headline, indices, today's brief, setups preview, your watchlist, fund flows, breadth, sectors, outlook counts, world, reality check |
+| `/setups` | Every setup from the latest close, filter by pattern and uptrends, sort by volume, risk or reward vs risk; CSV download |
+| `/outlook` | Leaders, pullbacks, uptrend setups, weak stocks, breakdowns (`?tab=`) |
+| `/portfolio` | Holdings, totals, "Rule says" Add / Hold / Review / Exit with the rule, add and paste import, CSV download |
+| `/backtest` | Results by pattern, running total, weekly bars, out-of-sample split, each year, buy-and-hold benchmark, caveats |
+| `/stock/[symbol]` | Overview (short and long term cards, Daily/Weekly/Monthly chart), Technicals (indicators, price ladder), News and events (`?tab=`), watchlist star |
+| `/health` | Each engine step's last run, status and findings; sources that can break |
+| `/brief` | Brief archive with a date picker |
 
 ## Run it
 
@@ -31,32 +37,42 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r engine/requirements.txt
 python -m engine.run_daily --backfill      # first run: ~2 years of history
 
-# 2. web
-cd web && npm install && npm run dev       # http://localhost:3000
+# 2. web (listens on 127.0.0.1 only)
+cd web && npm install && npm run dev       # http://127.0.0.1:3000
 
-# 3. schedule daily updates (macOS, from repo root)
-scripts/install-schedule.sh
+# 3. daily updates (macOS, from repo root)
+scripts/install-schedule.sh                # weekdays 18:45, macOS notification; remove with --remove
 ```
 
-## Keep it fresh
+The **Fetch latest** button in the header runs the same engine on demand (about 20 s).
 
-Two ways, neither needs a terminal after setup:
+### Optional
 
-- **Scheduled (macOS):** `scripts/install-schedule.sh` installs a launchd job that runs the engine weekdays at 6:45 pm, after NSE publishes FII/DII flows. If the Mac was asleep, it runs on wake. Output goes to `data/engine.log`. Remove with `scripts/install-schedule.sh --remove`.
-- **On demand:** the **Fetch latest** button in the dashboard header runs the engine (about 20 s) and reloads the page.
+- **Telegram alert:** copy `.env.example` to `.env`, fill `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. The scheduled run then
+  sends the brief and any failed steps. Without it, the macOS notification is the only alert.
+- **FII/DII history:** NSE only returns the latest day. To add earlier days, save them yourself as a CSV and run
+  `python -m engine.ingest.fii_dii_import data/fii_dii_history.csv` (format: `engine/ingest/fii_dii_history.example.csv`).
+  Existing days are never overwritten.
 
-Each step logs to the `ingest_log` table. If one fails, the dashboard header shows which.
+## What the backtest says (Nov 2026)
 
-## Things to know
+- **No setup has an edge.** Daily breakouts and volume spikes lost money after costs; support bounces broke even overall.
+- **Out of sample:** judged on trades entered up to 2025-12-31, only support bounces passed (+0.21R); in 2026 they lost
+  (−0.22R). All three patterns were better in 2025 than in 2026: the market phase dominates.
+- **Weekly bars** look positive in sample (small samples, same period). Treat as a lead to test, not an edge.
+  Monthly bars need 60 months; we have 24.
+- Universe is today's Nifty 500 (survivorship flatters longs). Outlook groups, portfolio rules and the long-term verdict are
+  rules, not forecasts, and are not backtested.
 
-- **FII/DII history builds one day per run.** NSE's endpoint only returns the latest day, so run the engine daily from the start.
-- **NSE blocks scripts sometimes.** If the Nifty 500 list download fails, save the constituents CSV as `data/nifty500.csv` and re-run.
-- **Prices come from Yahoo (yfinance)**: free, end-of-day, occasionally gappy. Fine for now; swap for a broker API later.
-- **Gift Nifty isn't included**; Yahoo doesn't carry it reliably.
-- **Portfolio holdings stay on this machine**, in `data/portfolio.db`, separate from market data, so rebuilding `market.db` never loses them.
-- **Pattern backtest (as of Nov 2026): no pattern has a reliable edge.** Breakouts and volume spikes lost money after costs over two years; support bounces broke even. Trend filtering didn't help. Results were positive in year one and negative in year two, so the market phase dominates. The universe is today's Nifty 500 (survivorship bias flatters longs).
-- **Outlook lists and portfolio suggestions are rules, not forecasts.** None is validated by the backtest yet.
-- Not investment advice. Backtest any signal before acting on it.
+## Data sources and terms
+
+| Source | Used for | Notes |
+|---|---|---|
+| Yahoo Finance (yfinance) | Prices, indices, world | Unofficial, end of day, personal use. Not dividend adjusted; a few stocks missing |
+| NSE archives CSV | Nifty 500 list | Fallback: save it as `data/nifty500.csv` |
+| NSE website API | Daily FII/DII | NSE's terms of use prohibit automated collection. Kept for personal use; consider replacing with a licensed feed |
+| Telegram Bot API | Alerts | Official API |
+| News, corporate events, X buzz | Not set up | Shown as "Not tracked" until a source is chosen |
 
 ## Tests
 
@@ -65,16 +81,17 @@ scripts/test.sh            # engine tests + web typecheck
 scripts/test.sh --build    # also the production build
 ```
 
-Covers the trade simulator (fills, gaps, costs, time exits), no-lookahead checks on the detectors and
-indicators, trend/trailing-stop/breakdown rules, and the daily brief (breadth, headlines, one row per day).
+Covers the trade simulator, no-lookahead checks on detectors and indicators, RSI/MACD/Bollinger and swing levels, weekly
+and monthly resampling, walk-forward and per-year stats, the benchmark, the daily brief text, Telegram message building,
+and the FII/DII import.
 
-The web server listens on 127.0.0.1 only. `/api/refresh` accepts same-origin requests only and reuses the
-last result for 60 seconds.
+Security: the server binds to 127.0.0.1; `/api/refresh` accepts same-origin requests only and reuses the last result for
+60 seconds; server actions get Next's Origin/Host check.
 
-## Next phases
+## Roadmap
 
-2. ~~Pattern engine with entry/stop/target, plus a backtester~~ done; also daily brief, outlook, portfolio
-   - Still open: backtest the portfolio exit rules and outlook screens; short-side (breakdown) backtest; walk-forward test
-3. News layer: LLM turns headlines and filings into affected sectors/stocks
-4. IPO desk: GMP, subscription (QIB / bNII / sNII / retail), valuation
-5. Results/fundamentals scoring, PCR / OI, Telegram alerts
+1. ~~Data pipeline and dashboard~~
+2. ~~Pattern engine and backtester~~, plus walk-forward, weekly/monthly, brief, outlook, portfolio, watchlist
+3. News and events: needs a source decision (licensed API vs RSS vs none) and an LLM key; tables and UI are ready
+4. IPO desk: GMP has no official source
+5. Fundamentals scoring, PCR / OI; ~~Telegram alerts~~

@@ -49,6 +49,10 @@ def main() -> int:
         conn.commit()  # one failing step must not stop the others
     if args.notify:
         notify(conn, failed)
+        from engine.alerts import notify_telegram
+        failed_steps = [r[0] for r in conn.execute(
+            "SELECT step FROM ingest_log l WHERE id = (SELECT MAX(id) FROM ingest_log WHERE step = l.step) AND status = 'failed'")]
+        print(f"[alerts] {notify_telegram(conn, failed_steps)}")
     return 1 if failed else 0
 
 

@@ -24,6 +24,9 @@ export default function SetupsPage() {
       <RealityCheck variant="band" />
       <div style={{ height: 32 }} />
       {setups.length ? <SetupsTable setups={setups} /> : <DashedNotice>No setups fired on the latest close.</DashedNotice>}
+      {setups.length > 0 && (
+        <p className="note"><a href="/api/export/setups" download style={{ fontWeight: 500 }}>Download these setups as CSV</a></p>
+      )}
     </main>
   );
 }

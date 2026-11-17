@@ -13,7 +13,7 @@ engine/            Python: fetches data, computes everything, writes data/market
   alerts.py        Telegram alert after the daily run (optional)
 web/               Next.js 16 app over data/market.db (dark design, IBM Plex)
 scripts/           install-schedule.sh (launchd), test.sh
-data/              market.db, portfolio.db (holdings + watchlist), engine.log (all gitignored)
+data/              market.db (~110 MB with 10 years), portfolio.db (holdings + watchlist), engine.log (gitignored)
 ```
 
 ## Pages
@@ -35,7 +35,7 @@ data/              market.db, portfolio.db (holdings + watchlist), engine.log (a
 # 1. engine (from repo root)
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r engine/requirements.txt
-python -m engine.run_daily --backfill      # first run: ~2 years of history
+python -m engine.run_daily --backfill      # first run: 10 years of history, a few minutes
 
 # 2. web (listens on 127.0.0.1 only)
 cd web && npm install && npm run dev       # http://127.0.0.1:3000
@@ -54,15 +54,22 @@ The **Fetch latest** button in the header runs the same engine on demand (about 
   `python -m engine.ingest.fii_dii_import data/fii_dii_history.csv` (format: `engine/ingest/fii_dii_history.example.csv`).
   Existing days are never overwritten.
 
-## What the backtest says (Nov 2026)
+## What the backtest says (Nov 2026, 10 years)
 
-- **No setup has an edge.** Daily breakouts and volume spikes lost money after costs; support bounces broke even overall.
-- **Out of sample:** judged on trades entered up to 2025-12-31, only support bounces passed (+0.21R); in 2026 they lost
-  (−0.22R). All three patterns were better in 2025 than in 2026: the market phase dominates.
-- **Weekly bars** look positive in sample (small samples, same period). Treat as a lead to test, not an edge.
-  Monthly bars need 60 months; we have 24.
-- Universe is today's Nifty 500 (survivorship flatters longs). Outlook groups, portfolio rules and the long-term verdict are
-  rules, not forecasts, and are not backtested.
+Prices from Nov 2016 (`--backfill` fetches 10 years). Every trade pays 0.1% costs and 0.2% slippage per side;
+stocks trading under Rs 5 crore a day are skipped. Rules were fixed before results were seen. Training is every
+trade entered up to 2025-12-31; 2026 is the untouched test.
+
+- **Daily setups: no edge.** Breakouts −0.06R, volume spikes −0.03R, support bounces −0.06R over 10 years; none
+  passes training, all lose in 2026.
+- **Tried, fixed in advance:** only trading when the Nifty 50 is above its 200-day average, and a trailing-stop exit
+  instead of a fixed target. Together they move breakouts and volume spikes to about break-even (−0.01R, +0.01R).
+  They work in strong bull years (2021, 2023) and lose in the rest. Not trusted.
+- **Weekly bars, a lead:** volume spikes passed training (+0.32R) and stayed positive in 2026 (+0.16R over 241
+  trades) while the Nifty fell 2.8%. One period, today's stock list: watch it, don't trust it yet. Monthly bars
+  passed training but failed 2026 on too few trades to judge.
+- Universe is today's Nifty 500, so stocks that dropped out over 10 years are missing (survivorship flatters
+  long trades). Outlook groups, portfolio rules and the long-term verdict are rules, not forecasts.
 
 ## Data sources and terms
 

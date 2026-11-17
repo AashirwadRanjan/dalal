@@ -67,7 +67,9 @@ def run(prices: pd.DataFrame):
             else:
                 status_rows.append((sym, tf, "none", None, None, None, None, None, len(bars)))
         for p in patterns.PATTERNS:
-            st = backtest.stats([t for t in all_trades if t.pattern == p])
+            mine = [t for t in all_trades if t.pattern == p]
+            st = backtest.stats(mine)
+            st["walk_forward"] = backtest.walk_forward(mine)
             st["bars_needed"], st["bars_available"] = patterns.MIN_HISTORY, max_bars
             stats_rows.append((tf, p, json.dumps(st)))
         closed = sum(t.outcome != "open" for t in all_trades)

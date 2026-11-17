@@ -6,9 +6,13 @@ gives a clean, consistent backtest.
 import json
 import math
 
+import numpy as np
 import pandas as pd
 
 from engine.signals import backtest, patterns, state, timeframes
+
+MIN_TURNOVER = 5e7  # Rs 5 crore average daily traded value; thinner stocks are skipped
+VARIANTS = ["base", "regime", "trail", "regime_trail"]  # base must stay first
 
 STATE_COLS = ["date", "close", "chg_1d", "dma50", "dma200", "trend", "ret_1m", "ret_3m", "ret_6m",
               "rs_pct", "atr", "trail_stop", "hi52", "lo52", "volx", "low20", "breakdown",
@@ -21,6 +25,13 @@ def _clean(x):
     if hasattr(x, "item"):  # numpy scalar
         return _clean(x.item())
     return x
+
+
+def market_regime(conn) -> dict[str, bool]:
+    """Date -> True when the Nifty 50 closed above its 200-day average that day (known at the close)."""
+    n = pd.read_sql("SELECT date, close FROM market_series WHERE symbol = '^NSEI' ORDER BY date", conn).set_index("date")["close"]
+    sma = n.rolling(200).mean()
+    return {d: bool(c > m) for d, c, m in zip(n.index, n, sma) if np.isfinite(m)}
 
 
 def benchmark(prices: pd.DataFrame) -> list[tuple]:
@@ -41,7 +52,9 @@ def run(conn) -> str:
     ).dropna(subset=["open", "high", "low", "close"])
     prices["volume"] = prices["volume"].fillna(0)
 
-    sig_rows, trade_rows, all_trades, latest = [], [], [], []
+    regime_up = market_regime(conn)
+    sig_rows, trade_rows, latest, illiquid = [], [], [], 0
+    variant_trades: dict[str, list] = {v: [] for v in VARIANTS}
     for sym, df in prices.groupby("symbol", sort=False):
         df = df.set_index("date")
         ind = state.indicators(df)
@@ -50,31 +63,51 @@ def run(conn) -> str:
         last["support"], last["resistance"] = state.levels(df)
         latest.append(last)
 
-        sigs = patterns.detect(df)
+        raw = patterns.detect(df)
+        # Liquidity: average daily traded value over the 20 days before the signal (no lookahead)
+        turnover = (df["close"] * df["volume"]).shift(1).rolling(20).mean().to_numpy()
+        sigs = [s for s in raw if np.isfinite(turnover[s.i]) and turnover[s.i] >= MIN_TURNOVER]
+        illiquid += len(raw) - len(sigs)
         if not sigs:
             continue
         trend_at = ind["trend"].to_numpy()
         sig_rows += [(sym, s.date, s.pattern, trend_at[s.i], s.entry, s.stop, s.target, s.detail) for s in sigs]
         arr = [df[k].to_numpy(float) for k in ("open", "high", "low", "close")]
-        trades = backtest.run_symbol(sigs, *arr, df.index.to_list())
+        dates = df.index.to_list()
+        trail = ind["trail_stop"].to_numpy()
+        up_sigs = [s for s in sigs if regime_up.get(s.date, False)]
+        runs = {
+            "base": backtest.run_symbol(sigs, *arr, dates),
+            "regime": backtest.run_symbol(up_sigs, *arr, dates),
+            "trail": backtest.run_symbol(sigs, *arr, dates, mode="trail", trail=trail),
+            "regime_trail": backtest.run_symbol(up_sigs, *arr, dates, mode="trail", trail=trail),
+        }
         sig_i = {s.date: s.i for s in sigs}
-        for t in trades:
-            t.trend = trend_at[sig_i[t.signal_date]]
-        all_trades += trades
+        for v, trades in runs.items():
+            for t in trades:
+                t.trend = trend_at[sig_i[t.signal_date]]
+            variant_trades[v] += trades
         trade_rows += [
             (sym, t.pattern, t.signal_date, t.trend, t.entry_date, t.entry, t.stop, t.target,
              t.exit_date, t.exit, t.outcome, t.r, t.ret_pct, t.bars)
-            for t in trades
+            for t in runs["base"]
         ]
 
+    all_trades = variant_trades["base"]
     stat_rows = []
     for p in patterns.PATTERNS:
         mine = [t for t in all_trades if t.pattern == p]
         st = backtest.stats(mine)
         st["by_trend"] = {tr: backtest.stats([t for t in mine if t.trend == tr]) for tr in state.TRENDS}
-        st["params"] = {"max_hold": backtest.MAX_HOLD, "cost_pct": backtest.COST_PCT, "reward_r": patterns.REWARD_R}
+        st["params"] = {"max_hold": backtest.MAX_HOLD, "cost_pct": backtest.COST_PCT, "reward_r": patterns.REWARD_R,
+                        "slippage_pct": backtest.SLIPPAGE_PCT, "min_turnover_cr": MIN_TURNOVER / 1e7,
+                        "trail_max_hold": backtest.TRAIL_MAX_HOLD}
         st["walk_forward"] = backtest.walk_forward(mine)
         st["by_year"] = backtest.by_year(mine)
+        st["variants"] = {}
+        for v in VARIANTS[1:]:
+            vt = [t for t in variant_trades[v] if t.pattern == p]
+            st["variants"][v] = {**backtest.stats(vt), "walk_forward": backtest.walk_forward(vt), "by_year": backtest.by_year(vt)}
         stat_rows.append((p, json.dumps(st)))
 
     snap = pd.DataFrame(latest)
@@ -105,4 +138,5 @@ def run(conn) -> str:
         conn.executemany("INSERT INTO benchmark_daily VALUES (?,?,?,?)", bench)
 
     closed = sum(t.outcome != "open" for t in all_trades)
-    return f"{len(sig_rows)} signals, {closed} closed backtest trades, {len(state_rows)} stock states; {tf_note}"
+    return (f"{len(sig_rows)} setups ({illiquid} skipped as illiquid), {closed} closed backtest trades, "
+            f"{len(state_rows)} stock states; {tf_note}")

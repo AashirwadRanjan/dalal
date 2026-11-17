@@ -1,10 +1,16 @@
 """Turn signals into simulated trades and summarise them.
 
 Execution model (deliberately conservative):
-- Enter at the open of the bar after the signal. Skip if that open is already past stop or target.
-- Each later bar: a gap through stop/target fills at the open; otherwise stop/target fill at their price.
-  If one bar touches both, assume the stop hit first.
-- Exit at the close after MAX_HOLD bars. A trade still running when data ends is 'open'.
+- Enter at the open of the bar after the signal, paying SLIPPAGE_PCT above it. Skip if that open is already
+  past the stop (or past the target in target mode).
+- Each later bar: a gap through the stop fills at the open; otherwise the stop fills at its price. Stop, time
+  and gap exits all pay SLIPPAGE_PCT. A target is a resting limit order, so it fills at its price.
+  If one bar touches both stop and target, assume the stop hit first.
+- Two exit modes:
+    target  fixed stop and target, exit at the close after MAX_HOLD bars (the original rule)
+    trail   no target; the stop ratchets up to the trailing stop (22-day high - 3 ATR, known at the prior
+            close) and never moves down; exit at the close after TRAIL_MAX_HOLD bars
+- A trade still running when data ends is 'open'.
 - COST_PCT per side covers brokerage, STT and exchange charges (approx, delivery).
 - One trade at a time per stock per pattern: signals while a trade is live are ignored.
 """
@@ -15,7 +21,9 @@ import numpy as np
 from engine.signals.patterns import Signal
 
 MAX_HOLD = 20
+TRAIL_MAX_HOLD = 60
 COST_PCT = 0.1
+SLIPPAGE_PCT = 0.2  # per side, on market fills (entry, stop, gap, time exit)
 
 
 @dataclass
@@ -28,58 +36,64 @@ class Trade:
     target: float
     exit_date: str
     exit: float
-    outcome: str  # target | stop | time | open
-    r: float      # result in multiples of initial risk, after costs
+    outcome: str  # target | stop | trail | time | open
+    r: float      # result in multiples of initial risk, after costs and slippage
     ret_pct: float
     bars: int
     exit_i: int
 
 
-def simulate(sig: Signal, o, h, l, c, dates) -> Trade | None:
+def simulate(sig: Signal, o, h, l, c, dates, mode: str = "target", trail=None) -> Trade | None:
     n = len(c)
     e = sig.i + 1
     if e >= n:
         return None  # signal on the latest bar: not entered yet
-    entry = o[e]
-    if not (sig.stop < entry < sig.target):
+    slip = SLIPPAGE_PCT / 100
+    if not (sig.stop < o[e] and (mode == "trail" or o[e] < sig.target)):
         return None  # gapped past a level; no trade
-    stop, target = sig.stop, sig.target
+    entry = o[e] * (1 + slip)
+    stop0, target = sig.stop, sig.target
+    hold = TRAIL_MAX_HOLD if mode == "trail" else MAX_HOLD
 
-    last = min(e + MAX_HOLD, n) - 1
+    last = min(e + hold, n) - 1
     outcome, px, j = None, None, e
     for j in range(e, last + 1):
+        stop = stop0
+        if mode == "trail" and trail is not None and j - 1 >= 0 and np.isfinite(trail[j - 1]):
+            stop = max(stop0, trail[j - 1])
+        hit = "trail" if stop > stop0 else "stop"
         if o[j] <= stop:
-            outcome, px = "stop", o[j]
+            outcome, px = hit, o[j] * (1 - slip)
         elif l[j] <= stop:
-            outcome, px = "stop", stop
-        elif o[j] >= target:
+            outcome, px = hit, stop * (1 - slip)
+        elif mode == "target" and o[j] >= target:
             outcome, px = "target", o[j]
-        elif h[j] >= target:
+        elif mode == "target" and h[j] >= target:
             outcome, px = "target", target
         if outcome:
             break
     if not outcome:
-        outcome = "time" if last == e + MAX_HOLD - 1 else "open"
-        px = c[j]
+        outcome = "time" if last == e + hold - 1 else "open"
+        px = c[j] * (1 - slip)
 
     k = COST_PCT / 100
     net = px * (1 - k) - entry * (1 + k)
     return Trade(
         pattern=sig.pattern, signal_date=sig.date, entry_date=dates[e],
-        entry=round(entry, 2), stop=stop, target=target,
+        entry=round(entry, 2), stop=stop0, target=target,
         exit_date=dates[j], exit=round(px, 2), outcome=outcome,
-        r=round(net / (entry - stop), 3), ret_pct=round(net / entry * 100, 3),
+        r=round(net / (entry - stop0), 3), ret_pct=round(net / entry * 100, 3),
         bars=j - e + 1, exit_i=j,
     )
 
 
-def run_symbol(signals: list[Signal], o, h, l, c, dates) -> list[Trade]:
+def run_symbol(signals: list[Signal], o, h, l, c, dates, mode: str = "target", trail=None) -> list[Trade]:
     trades: list[Trade] = []
     busy_until: dict[str, int] = {}
     for s in signals:  # signals are in date order
         if s.i < busy_until.get(s.pattern, -1):
             continue
-        t = simulate(s, o, h, l, c, dates)
+        t = simulate(s, o, h, l, c, dates, mode, trail)
         if t:
             trades.append(t)
             busy_until[s.pattern] = t.exit_i

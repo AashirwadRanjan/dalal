@@ -16,11 +16,11 @@ from engine.signals import run as signals
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--backfill", action="store_true", help="fetch 2 years instead of ~10 days")
+    ap.add_argument("--backfill", action="store_true", help="fetch 10 years instead of ~10 days")
     ap.add_argument("--only", choices=["instruments", "prices", "market_series", "fii_dii", "signals", "summary"])
     ap.add_argument("--notify", action="store_true", help="show a macOS notification with the brief when done")
     args = ap.parse_args()
-    period = "2y" if args.backfill else "10d"
+    period = "10y" if args.backfill else "10d"
 
     conn = db.connect()
     steps = {

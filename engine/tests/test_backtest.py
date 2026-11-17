@@ -20,10 +20,12 @@ def sig(stop=95, target=110):
 
 class Simulate(unittest.TestCase):
     def setUp(self):
-        backtest.COST_PCT = 0  # exact numbers; costs tested separately
+        backtest.COST_PCT = 0  # exact numbers; costs and slippage tested separately
+        backtest.SLIPPAGE_PCT = 0
 
     def tearDown(self):
         backtest.COST_PCT = 0.1
+        backtest.SLIPPAGE_PCT = 0.2
 
     def test_enters_next_open_and_hits_target(self):
         t = backtest.simulate(sig(), *bars([(99, 101, 98, 100), (100, 104, 99, 103), (103, 111, 102, 108)]))
@@ -63,6 +65,27 @@ class Simulate(unittest.TestCase):
         backtest.COST_PCT = 0.1
         t = backtest.simulate(sig(), *bars([(99, 101, 98, 100), (100, 111, 99, 108)]))
         self.assertAlmostEqual(t.r, (110 * 0.999 - 100 * 1.001) / 5, places=3)
+
+    def test_slippage_on_entry_and_stop_not_target(self):
+        backtest.SLIPPAGE_PCT = 0.2
+        stopped = backtest.simulate(sig(), *bars([(99, 101, 98, 100), (100, 101, 94, 96)]))
+        self.assertAlmostEqual(stopped.entry, 100.2)
+        self.assertAlmostEqual(stopped.exit, 95 * 0.998, places=2)
+        won = backtest.simulate(sig(), *bars([(99, 101, 98, 100), (100, 111, 99, 108)]))
+        self.assertEqual(won.exit, 110)  # limit order at the target: no slippage
+        self.assertAlmostEqual(won.r, (110 - 100.2) / (100.2 - 95), places=3)
+
+    def test_trail_mode_ratchets_stop_and_has_no_target(self):
+        o, h, l, c, d = bars([(99, 101, 98, 100), (100, 106, 99, 105), (105, 115, 104, 114), (114, 116, 108, 109)])
+        trail = np.array([np.nan, 97.0, 109.0, 110.0])  # known at each close; used from the next bar
+        t = backtest.simulate(sig(target=110), o, h, l, c, d, mode="trail", trail=trail)
+        # bar 2 high 115 passes the 110 target, but trail mode has no target; bar 3 low 108 hits the stop 109
+        self.assertEqual((t.outcome, t.exit, t.exit_date), ("trail", 109, d[3]))
+
+    def test_trail_never_moves_below_initial_stop(self):
+        o, h, l, c, d = bars([(99, 101, 98, 100), (100, 101, 94, 96)])
+        t = backtest.simulate(sig(), o, h, l, c, d, mode="trail", trail=np.array([50.0, 50.0]))
+        self.assertEqual((t.outcome, t.exit), ("stop", 95))
 
     def test_one_trade_at_a_time_per_pattern(self):
         o, h, l, c, d = bars([(99, 101, 98, 100)] + [(100, 101, 99, 100.5)] * 5 + [(100, 111, 99, 108)])

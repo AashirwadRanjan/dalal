@@ -99,6 +99,7 @@ export type PatternStats = {
   by_trend?: Record<string, StatsCore>;
   by_year?: Record<string, StatsCore>;
   walk_forward?: { train_end: string; train: StatsCore; test: StatsCore; selected: boolean };
+  variants?: Record<string, StatsCore & { walk_forward: { train_end: string; train: StatsCore; test: StatsCore; selected: boolean }; by_year: Record<string, StatsCore> }>;
   trades: number;
   win_rate?: number;
   avg_r?: number;
@@ -425,6 +426,7 @@ export type TfStatus = {
   pattern: string | null; signal_date: string | null; entry: number | null; stop: number | null; target: number | null; bars: number;
 };
 export type TfStats = PatternStats & { tf: "W" | "M"; bars_needed?: number; bars_available?: number };
+// walk_forward comes from PatternStats
 
 export function getTfStatus(symbol: string): TfStatus[] {
   return withDb((db) => (hasTable(db, "tf_status") ? (db.prepare("SELECT * FROM tf_status WHERE symbol = ?").all(symbol) as TfStatus[]) : [])) ?? [];

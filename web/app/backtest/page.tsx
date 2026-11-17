@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Backtest" };
 export default function BacktestPage() {
   const raw = getPatternStats();
   const e = edgeSummary(raw);
-  const params = (raw[0] as { params?: { max_hold: number; cost_pct: number; reward_r: number } } | undefined)?.params;
+  const params = (raw[0] as { params?: { max_hold: number; cost_pct: number; reward_r: number; slippage_pct?: number; min_turnover_cr?: number; trail_max_hold?: number } } | undefined)?.params;
   const trades = getTrades({ limit: 10 });
 
   const passed = e.stats.filter((s) => s.walk_forward?.selected);
@@ -85,6 +85,8 @@ export default function BacktestPage() {
             </TablePanel>
           </section>
 
+          <Variants stats={e.stats} trailHold={params?.trail_max_hold ?? 60} />
+
           <WeeklyMonthly />
 
           <section style={{ paddingTop: 56 }}>
@@ -124,7 +126,11 @@ export default function BacktestPage() {
                   {params?.max_hold ?? 20} trading days.
                 </div>
                 <div>If one bar touches both the stop and the target, the stop wins.</div>
-                <div>Costs {params?.cost_pct ?? 0.1}% on each side of every trade.</div>
+                <div>
+                  Costs {params?.cost_pct ?? 0.1}% on each side, plus {params?.slippage_pct ?? 0}% slippage on entries, stops
+                  and time exits. Targets are limit orders and fill at their price.
+                </div>
+                <div>Skips stocks trading less than ₹{params?.min_turnover_cr ?? 0} crore a day on average over the prior 20 days.</div>
                 <div>One trade at a time per stock per pattern. Uses no future bars.</div>
               </div>
             </div>
@@ -170,9 +176,8 @@ export default function BacktestPage() {
           <section style={{ marginTop: 56 }}>
             <DashedNotice title="What would make this test stronger">
               <div style={{ display: "flex", flexWrap: "wrap", gap: "8px 40px", color: "var(--text-2)" }}>
-                <span>Five or more years of prices, not two</span>
                 <span>Stocks that left the Nifty 500, to remove survivorship</span>
-                <span>Slippage beyond the 0.1% cost</span>
+                <span>A portfolio-level test: limited open positions and position sizing, giving returns in %</span>
               </div>
             </DashedNotice>
           </section>
@@ -184,44 +189,115 @@ export default function BacktestPage() {
 
 function WeeklyMonthly() {
   const all = getTfStats();
-  const weekly = all.filter((s) => s.tf === "W" && s.trades > 0);
-  const monthly = all.find((s) => s.tf === "M");
+  const frames = (["W", "M"] as const).map((tf) => ({ tf, rows: all.filter((s) => s.tf === tf) }));
   return (
     <section style={{ paddingTop: 56 }}>
-      <h2 className="sec-title">Weekly bars</h2>
+      <h2 className="sec-title">Weekly and monthly bars</h2>
       <p className="sec-sub">
-        The same three patterns run on completed weekly bars and tested separately. Fewer trades means more luck in the numbers,
-        and this is the same two-year, in-sample period, so treat any positive result as a lead to test, not an edge.
+        The same three patterns on completed weekly and monthly bars, with the original exits, costs and slippage, judged
+        the same way: training up to the end of 2025, then “later”. Trades here can last up to 20 weeks or 20 months, so
+        whole-period results lean on the market’s rise; the later column is the one to read.
       </p>
-      {weekly.length ? (
-        <TablePanel minWidth={760}>
-          <table className="tbl">
-            <thead>
-              <tr><th>Pattern</th><th className="r">Trades</th><th className="r">Win rate</th><th className="r">Average R</th><th className="r">Profit factor</th><th className="r">Total R</th></tr>
-            </thead>
-            <tbody>
-              {weekly.map((s) => (
-                <tr key={s.pattern}>
-                  <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
-                  <td className="n">{s.trades}</td>
-                  <td className="n">{s.win_rate}%</td>
-                  <td className={`n ${toneOf(s.avg_r)}`}>{signed(s.avg_r, 3)}</td>
-                  <td className="n">{s.profit_factor?.toFixed(2) ?? "–"}</td>
-                  <td className={`n ${toneOf(s.total_r)}`}>{signed(s.total_r, 1)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TablePanel>
-      ) : (
-        <DashedNotice>No weekly trades yet.</DashedNotice>
-      )}
-      {monthly && (monthly.bars_available ?? 0) < (monthly.bars_needed ?? 60) && (
-        <p className="note">
-          Monthly bars: not enough history yet ({monthly.bars_available} months stored, the patterns need {monthly.bars_needed}). A
-          longer price history would make them possible.
-        </p>
-      )}
+      {frames.map(({ tf, rows }) => {
+        const enough = rows.some((r) => (r.bars_available ?? 0) >= (r.bars_needed ?? 60));
+        const traded = rows.filter((r) => r.trades > 0);
+        return (
+          <div key={tf} style={{ marginBottom: 24 }}>
+            <h3 style={{ fontSize: 17, marginBottom: 10 }}>{tf === "W" ? "Weekly" : "Monthly"}</h3>
+            {!enough ? (
+              <DashedNotice>
+                Not enough history yet ({rows[0]?.bars_available ?? 0} {tf === "W" ? "weeks" : "months"} stored, the patterns need {rows[0]?.bars_needed ?? 60}).
+              </DashedNotice>
+            ) : traded.length ? (
+              <TablePanel minWidth={760}>
+                <table className="tbl">
+                  <thead>
+                    <tr><th>Pattern</th><th className="r">Trades</th><th className="r">Average R</th><th className="r">Training avg</th><th>Passed?</th><th className="r">Later trades</th><th className="r">Later avg</th></tr>
+                  </thead>
+                  <tbody>
+                    {traded.map((s) => (
+                      <tr key={s.pattern}>
+                        <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                        <td className="n">{s.trades.toLocaleString("en-IN")}</td>
+                        <td className={`n ${toneOf(s.avg_r)}`}>{signed(s.avg_r, 3)}</td>
+                        <td className={`n ${toneOf(s.walk_forward?.train.avg_r)}`}>{signed(s.walk_forward?.train.avg_r, 3)}</td>
+                        <td>{s.walk_forward?.selected ? <span className="tag t-up">Passed</span> : <span className="tag t-flat">Did not pass</span>}</td>
+                        <td className="n">{s.walk_forward?.test.trades ?? 0}</td>
+                        <td className={`n ${toneOf(s.walk_forward?.test.avg_r)}`}>{signed(s.walk_forward?.test.avg_r, 3)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </TablePanel>
+            ) : (
+              <DashedNotice>No trades on {tf === "W" ? "weekly" : "monthly"} bars yet.</DashedNotice>
+            )}
+            {traded.some((r) => (r.walk_forward?.test.trades ?? 0) > 0 && (r.walk_forward?.test.trades ?? 0) < 100) && (
+              <p className="note" style={{ marginTop: 8 }}>Fewer than 100 later trades is too few to judge either way.</p>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+const VARIANT_NAME: Record<string, string> = {
+  base: "Original rule",
+  regime: "Only when Nifty is above its 200-day average",
+  trail: "Trailing-stop exit instead of a fixed target",
+  regime_trail: "Both: market filter and trailing stop",
+};
+
+/** Every rule variant we tried, judged the same way. Decided before the results were seen; listed even when they fail. */
+function Variants({ stats, trailHold }: { stats: ReturnType<typeof edgeSummary>["stats"]; trailHold: number }) {
+  if (!stats.some((s) => s.variants)) return null;
+  const any = stats.some((s) => s.walk_forward?.selected || Object.values(s.variants ?? {}).some((v) => v.walk_forward.selected));
+  return (
+    <section style={{ paddingTop: 56 }}>
+      <h2 className="sec-title">What we tried</h2>
+      <p className="sec-sub">
+        Two changes, fixed before seeing any result: take setups only when the Nifty 50 closed above its 200-day average,
+        and replace the fixed target with the trailing stop (held up to {trailHold} days).{" "}
+        {any ? "At least one variant passed training; check that it held up in the later period before trusting it." : "None passed training, so none is trusted. The market filter and trailing stop only move results from losing towards break-even."}
+      </p>
+      <TablePanel minWidth={900}>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Pattern and rule</th><th className="r">Trades</th><th className="r">Win rate</th><th className="r">Average R</th>
+              <th className="r">Training avg</th><th>Passed?</th><th className="r">Later avg</th>
+            </tr>
+          </thead>
+          <tbody>
+            {stats.flatMap((s) =>
+              (["base", "regime", "trail", "regime_trail"] as const).map((v) => {
+                const x = v === "base" ? { ...s, walk_forward: s.walk_forward! } : s.variants?.[v];
+                if (!x || !x.walk_forward) return null;
+                const w = x.walk_forward;
+                return (
+                  <tr key={s.pattern + v}>
+                    <td>
+                      <span style={{ fontWeight: v === "base" ? 600 : 400 }}>{v === "base" ? PATTERN_LABEL[s.pattern] : ""}</span>
+                      <span className="nm" style={{ fontSize: 14 }}>{VARIANT_NAME[v]}</span>
+                    </td>
+                    <td className="n">{(x.trades ?? 0).toLocaleString("en-IN")}</td>
+                    <td className="n">{x.win_rate ?? "–"}%</td>
+                    <td className={`n ${toneOf(x.avg_r)}`}>{signed(x.avg_r, 3)}</td>
+                    <td className={`n ${toneOf(w.train.avg_r)}`}>{signed(w.train.avg_r, 3)}</td>
+                    <td>{w.selected ? <span className="tag t-up">Passed</span> : <span className="tag t-flat">Did not pass</span>}</td>
+                    <td className={`n ${toneOf(w.test.avg_r)}`}>{signed(w.test.avg_r, 3)}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </TablePanel>
+      <p className="note">
+        Trailing-stop variants win less often but let winners run, so compare average R, not win rate. Training is every
+        trade entered up to {stats[0]?.walk_forward?.train_end}; “later” is everything after.
+      </p>
     </section>
   );
 }

@@ -17,7 +17,7 @@ SERIES = [
     ("USDINR=X", "USD/INR", "global"),
     ("^N225", "Nikkei 225", "global"),
     ("^HSI", "Hang Seng", "global"),
-    ("^SSEC", "Shanghai", "global"),
+    ("000001.SS", "Shanghai", "global"),  # ^SSEC stopped returning data on Yahoo
     ("^FTSE", "FTSE 100", "global"),
 ]
 

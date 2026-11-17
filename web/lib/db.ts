@@ -341,5 +341,15 @@ export function getStates(): StockState[] {
 }
 
 export function getInstruments(): { symbol: string; name: string }[] {
-  return withDb((db) => db.prepare("SELECT symbol, name FROM instruments ORDER BY symbol").all() as { symbol: string; name: string }[]) ?? [];
+  // Only instruments with prices: Yahoo has nothing for a few (e.g. BAGMANE, DUMMYHEG), so they can't be analysed.
+  return (
+    withDb((db) =>
+      db
+        .prepare(
+          `SELECT symbol, name FROM instruments i
+           WHERE EXISTS (SELECT 1 FROM prices_daily p WHERE p.symbol = i.symbol) ORDER BY symbol`
+        )
+        .all() as { symbol: string; name: string }[]
+    ) ?? []
+  );
 }

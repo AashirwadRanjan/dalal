@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useMemo, useRef, useState } from "react";
+import { abbreviates, words } from "@/lib/match";
 
 type Item = { symbol: string; name: string };
 
@@ -16,6 +17,7 @@ export function matchStocks(items: Item[], q: string, limit = 5): Item[] {
     if (nm.startsWith(n)) return 2;
     if (s.includes(n)) return 3;
     if (nm.includes(n)) return 4;
+    if (abbreviates(words(q), words(i.name))) return 5; // "dr reddy labs" -> Dr. Reddy's Laboratories
     return 9;
   };
   return items

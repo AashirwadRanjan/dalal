@@ -143,7 +143,7 @@ export default function PortfolioPage() {
         </div>
       )}
 
-      <HoldingForms symbols={getInstruments()} />
+      <HoldingForms symbols={getInstruments()} held={Object.fromEntries(holdings.map((h) => [h.symbol, { qty: h.qty, avg: h.avg_price }]))} />
     </main>
   );
 }

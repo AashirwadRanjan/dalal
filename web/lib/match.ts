@@ -25,7 +25,7 @@ export const words = (s: string) =>
 /** "INDS" -> also try "IND", so plural abbreviations match ("LABS" -> Laboratories). */
 const fits = (q: string, n: string) => n.startsWith(q) || (q.length > 3 && q.endsWith("S") && n.startsWith(q.slice(0, -1)));
 
-function abbreviates(q: string[], n: string[]): boolean {
+export function abbreviates(q: string[], n: string[]): boolean {
   if (!q.length || !n.length || !fits(q[0], n[0])) return false;
   let j = 1;
   for (let i = 1; i < q.length; i++) {

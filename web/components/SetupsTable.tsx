@@ -74,12 +74,12 @@ export default function SetupsTable({ setups, charts = {} }: { setups: Setup[]; 
       </div>
 
       <div className="panel tbl-wrap" role="region" aria-label="Setups table" tabIndex={0}>
-        <div className="tbl-pad" style={{ minWidth: 1020 }}>
+        <div className="tbl-pad" style={{ minWidth: 1080 }}>
           <table className="tbl">
             <thead>
               <tr>
-                <th>Stock</th><th>Side</th><th>Pattern</th><th>Trend</th><th className="r">Entry</th><th className="r">Stop</th>
-                <th className="r">Target</th><th className="r">Reward vs risk</th><th className="r">Volume</th>
+                <th>Stock</th><th>Side</th><th>Pattern</th><th>Trend</th><th className="r">Close</th><th className="r">Stop</th>
+                <th className="r">Target</th><th className="r">Reward vs risk</th><th>Next open</th><th className="r">Volume</th>
               </tr>
             </thead>
             <tbody>
@@ -110,19 +110,26 @@ export default function SetupsTable({ setups, charts = {} }: { setups: Setup[]; 
                   </td>
                   <td className="n up">{inr(r.target)}</td>
                   <td className="n">{r.rr.toFixed(1)} to 1</td>
+                  <td style={{ fontSize: 14, whiteSpace: "nowrap" }}>
+                    Skip outside <span className="mono">{inr(Math.min(r.stop, r.target))}–{inr(Math.max(r.stop, r.target))}</span>
+                    <span className="nm" style={{ fontSize: 13 }}>
+                      Reward &lt; risk {r.side === "long" ? "above" : "below"} <span className="mono">{inr((r.stop + r.target) / 2)}</span>
+                    </span>
+                  </td>
                   <td className="n">{r.volx ? `${r.volx.toFixed(1)}×` : "–"}</td>
                 </tr>
               ))}
               {shown.length === 0 && (
-                <tr className="empty-row"><td colSpan={9}>No setups match these filters.</td></tr>
+                <tr className="empty-row"><td colSpan={10}>No setups match these filters.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
       <div className="note" role="status">
-        Showing {shown.length} of {rows.length} setups. Entry is the next open after the setup; the price shown is the
-        latest close. A short needs stock futures or puts to hold overnight; only F&amp;O stocks have them. ▲ and ▼ mark
+        Showing {shown.length} of {rows.length} setups. Close is the setup day’s close, for reference: the backtest enters at
+        the next open (buy for longs, short for shorts) and skips the trade if that open is outside the stop–target range.
+        Below the range’s midpoint for longs (above it for shorts), the reward still at least matches the risk. A short needs stock futures or puts to hold overnight; only F&amp;O stocks have them. ▲ and ▼ mark
         chart patterns completed in the last five days; see the backtest page for what each has meant. 1 to 1 means the target is as far from the entry as the stop. Volume is the day’s volume compared
         with its 20-day average.
       </div>

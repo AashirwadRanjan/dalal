@@ -525,3 +525,85 @@ export function getChartPatternStats(): Record<string, ChartPatternStats> {
     }) ?? {}
   );
 }
+
+// ---- Next-session view: how the previous plan went, and what could trigger at the next close ----
+
+export type PlanResult = {
+  symbol: string; name: string; side: "long" | "short"; pattern: string; date: string;
+  ref: number; stop: number; target: number;
+  entry_date: string | null; entry: number | null; outcome: TradeRow["outcome"] | null; exit_date: string | null;
+  r: number | null; last_close: number | null; last_date: string | null;
+};
+
+/** Setups from the close before `signalDate`, with what the backtest rules did with them since. */
+export function getLastPlan(signalDate: string): { date: string | null; rows: PlanResult[] } {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "signals")) return { date: null, rows: [] };
+      const prev = (db.prepare("SELECT MAX(date) AS d FROM signals WHERE date < ?").get(signalDate) as { d: string | null }).d;
+      if (!prev) return { date: null, rows: [] };
+      const rows = db
+        .prepare(
+          `SELECT s.symbol, i.name, s.side, s.pattern, s.date, s.entry AS ref, s.stop, s.target,
+                  t.entry_date, t.entry, t.outcome, t.exit_date, t.r, st.close AS last_close, st.date AS last_date
+           FROM signals s JOIN instruments i USING (symbol)
+           LEFT JOIN trades t ON t.symbol = s.symbol AND t.pattern = s.pattern AND t.signal_date = s.date
+           LEFT JOIN stock_state st ON st.symbol = s.symbol
+           WHERE s.date = ? ORDER BY s.side, s.symbol`
+        )
+        .all(prev) as PlanResult[];
+      return { date: prev, rows };
+    }) ?? { date: null, rows: [] }
+  );
+}
+
+export type NearTrigger = {
+  symbol: string; name: string; side: "long" | "short"; close: number; level: number; dist_pct: number;
+  vol_needed: number; volume: number | null; fno: number; trend: string;
+};
+
+const NEAR_PCT = 2;
+const MIN_TURNOVER = 5e7; // same liquidity floor as the engine (Rs 5 crore a day)
+
+/** Nifty 500 stocks within NEAR_PCT of a breakout or breakdown close, nearest first. */
+export function getNearTriggers(limit = 15): { long: NearTrigger[]; short: NearTrigger[] } {
+  return (
+    withDb((db) => {
+      const cols = (db.prepare("PRAGMA table_info(stock_state)").all() as { name: string }[]).map((c) => c.name);
+      if (!cols.includes("vol_needed")) return { long: [], short: [] };
+      const q = (side: "long" | "short") =>
+        db
+          .prepare(
+            `SELECT s.symbol, i.name, '${side}' AS side, s.close, s.trend, i.fno, s.vol_needed, p.volume,
+                    ${side === "long" ? "s.bo_level" : "s.bd_level"} AS level,
+                    100.0 * ${side === "long" ? "(s.bo_level - s.close) / s.close" : "(s.close - s.bd_level) / s.close"} AS dist_pct
+             FROM stock_state s JOIN instruments i USING (symbol)
+             LEFT JOIN prices_daily p ON p.symbol = s.symbol AND p.date = s.date
+             WHERE i.in_index = 1 AND s.date = (SELECT MAX(date) FROM stock_state)
+               AND s.vol_needed / 1.5 * s.close >= ? AND dist_pct BETWEEN 0 AND ?
+             ORDER BY dist_pct LIMIT ?`
+          )
+          .all(MIN_TURNOVER, NEAR_PCT, limit) as NearTrigger[];
+      return { long: q("long"), short: q("short") };
+    }) ?? { long: [], short: [] }
+  );
+}
+
+// ---- Learning from losses (engine/signals/rulecheck.py) ----
+
+type WfStats = { trades: number; avg_r?: number; win_rate?: number };
+export type RuleCheck = {
+  pattern: string; train_end: string;
+  base: { train: WfStats; test: WfStats };
+  filters: Record<string, { label: string; share: number; train: WfStats; test: WfStats; gain_train: number; gain_test: number; promising: boolean }>;
+};
+
+export function getRuleChecks(): RuleCheck[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "rule_checks")) return [];
+      const rows = db.prepare("SELECT pattern, stats FROM rule_checks").all() as { pattern: string; stats: string }[];
+      return rows.map((r) => ({ pattern: r.pattern, ...JSON.parse(r.stats) }));
+    }) ?? []
+  );
+}

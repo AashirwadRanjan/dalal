@@ -22,7 +22,7 @@ data/              market.db (~110 MB with 10 years), portfolio.db (holdings + w
 | Route | What it shows |
 |---|---|
 | `/` Today | Generated headline, indices, today's brief, setups preview, your watchlist, fund flows, breadth, sectors, outlook counts, world, reality check |
-| `/setups` | Every long and short setup from the latest close, chart patterns next to each, filters and sort; CSV download |
+| `/setups` | The plan for the next session (or "in play" / "not final" during market hours) with open-price rules per setup, how the previous plan went, and stocks that could trigger at the next close; CSV download |
 | `/live` | Live record: setups logged the day they fire and followed forward (entered, +1R, target, stop) |
 | `/outlook` | Leaders, pullbacks, uptrend setups, weak stocks, breakdowns, short setups on F&O stocks (`?tab=`) |
 | `/portfolio` | Holdings, totals, "Rule says" Add / Hold / Review / Exit with the rule, add and paste import, CSV download |
@@ -81,6 +81,10 @@ trade entered up to 2025-12-31; 2026 is the untouched test.
 - **Chart patterns** (double top/bottom, head and shoulders, triangles, engulfing, hammer, shooting star) are context,
   not trades. Judged by the next 10 days against the average stock: only descending triangles held up (about 0.5% worse
   than average in training and in 2026). The rest mean little on their own.
+- **Learning from losses:** every backtest trade is tagged with what was known when it was taken, and 8 filters fixed
+  in advance (trend, market direction, own 200-day, momentum, 2x volume, RSI, stop within 4%, not chasing the open) are
+  judged in training and later. None helped any pattern in both periods. A filter that does becomes a lead for the live
+  record, never an automatic rule change.
 - **Live record** started on 18 Nov 2026: every setup is logged on its final bar with frozen levels and followed with the
   backtest's rules. This is the test that can't be fooled by hindsight; give it 100+ closed trades.
 - Universe is today's Nifty 500, so stocks that dropped out over 10 years are missing (survivorship flatters

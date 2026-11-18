@@ -45,6 +45,12 @@ def indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["low20"] = low20
     out["breakdown"] = (c < low20) & (c.shift(1) >= low20.shift(1)) & (out["volx"] >= 1.5)
 
+    # What the next bar needs to fire a breakout/breakdown (patterns.py rules 1 and 4): close beyond the 20-day
+    # high/low including today, on 1.5x the 20-day average volume including today
+    out["bo_level"] = h.rolling(20).max()
+    out["bd_level"] = l.rolling(20).min()
+    out["vol_needed"] = 1.5 * v.rolling(20).mean()
+
     # RSI(14), Wilder smoothing
     delta = c.diff()
     gain = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False, min_periods=14).mean()

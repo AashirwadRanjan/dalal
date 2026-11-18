@@ -92,7 +92,9 @@ CREATE TABLE IF NOT EXISTS stock_state (
     rsi14 REAL,                    -- RSI(14), Wilder smoothing
     macd REAL, macd_signal REAL, macd_hist REAL,   -- MACD(12, 26, 9)
     bb_up REAL, bb_mid REAL, bb_low REAL,          -- Bollinger bands (20, 2)
-    support REAL, resistance REAL  -- nearest confirmed swing low below / swing high above the close
+    support REAL, resistance REAL, -- nearest confirmed swing low below / swing high above the close
+    bo_level REAL, bd_level REAL,  -- next bar is a breakout / breakdown if it closes beyond these...
+    vol_needed REAL                -- ...on at least this many shares
 );
 
 -- Weekly (W) and monthly (M) setups from resampled bars (engine/signals/timeframes.py)
@@ -132,6 +134,12 @@ CREATE TABLE IF NOT EXISTS chart_patterns (
 CREATE TABLE IF NOT EXISTS chart_pattern_stats (
     name  TEXT PRIMARY KEY,
     stats TEXT NOT NULL            -- JSON: n, avg_pct, edge_pct vs the average stock, hit_pct, train/test
+);
+
+-- Learning from losses (engine/signals/rulecheck.py): fixed candidate filters, judged in training and later
+CREATE TABLE IF NOT EXISTS rule_checks (
+    pattern TEXT PRIMARY KEY,
+    stats   TEXT NOT NULL          -- JSON: base train/test and, per filter, its train/test stats and gains
 );
 
 -- One market brief per trading day (engine/summary.py)
@@ -208,7 +216,7 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 
 
 # Derived tables are rebuilt every run, so an outdated layout is simply dropped and recreated.
-DERIVED_COLUMNS = {"signals": "side", "trades": "side", "stock_state": "resistance"}
+DERIVED_COLUMNS = {"signals": "side", "trades": "side", "stock_state": "vol_needed"}
 ADDED_COLUMNS = [
     ("instruments", "in_index", "INTEGER NOT NULL DEFAULT 0"),
     ("instruments", "fno", "INTEGER NOT NULL DEFAULT 0"),

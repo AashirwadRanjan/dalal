@@ -3,9 +3,9 @@ import Link from "next/link";
 import BenchmarkChart from "@/components/BenchmarkChart";
 import RunningTotal from "@/components/RunningTotal";
 import { DashedNotice, PageHead, TablePanel } from "@/components/ui";
-import { getBenchmark, getChartPatternStats, getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
+import { getBenchmark, getChartPatternStats, getRuleChecks, getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
-import { CHART_LABEL, CHART_ORDER, OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, SIDE_OF, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
+import { CHART_LABEL, CHART_ORDER, OUTCOME_LABEL, PATTERN_ORDER, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, SIDE_OF, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
 
 /** Pattern name with a Short tag for the mirrored short rules. */
 const Name = ({ p }: { p: string }) => (
@@ -102,6 +102,8 @@ export default function BacktestPage() {
           <WeeklyMonthly />
 
           <ChartPatternTable />
+
+          <Learning />
 
           <section style={{ paddingTop: 56 }}>
             <div className="sec-head">
@@ -431,6 +433,67 @@ function ChartPatternTable() {
         </table>
       </TablePanel>
       <p className="note">“Moved its way” is how often the stock went the pattern’s way at all; with most stocks rising over 10 years, bearish patterns rarely see falls even when they lag.</p>
+    </section>
+  );
+}
+
+/** Fixed candidate filters, each judged in training and later. Only one that helps in both is a lead. */
+function Learning() {
+  const checks = getRuleChecks();
+  if (!checks.length) return null;
+  const ordered = PATTERN_ORDER.map((p) => checks.find((c) => c.pattern === p)).filter((c): c is NonNullable<typeof c> => !!c);
+  const names = Object.keys(ordered[0]?.filters ?? {});
+  const promising = ordered.flatMap((c) => Object.entries(c.filters).filter(([, f]) => f.promising).map(([k, f]) => `${PATTERN_LABEL[c.pattern]}: ${f.label.toLowerCase()}`));
+  const g = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}`;
+  return (
+    <section id="learning" style={{ paddingTop: 56 }}>
+      <h2 className="sec-title">Learning from losses</h2>
+      <p className="sec-sub">
+        Every losing and winning trade is tagged with what was known when it was taken. For each pattern we check whether
+        a fixed list of filters, written before looking, would have improved it: first in training (to{" "}
+        {ordered[0]?.train_end.slice(0, 4)}), then in the later period it never saw. A filter is a lead only if it adds at
+        least +0.05R in both, on 100 or more later trades. With {ordered.length * names.length} checks some will look good
+        by luck, so even a lead goes to the live record before it changes any rule.{" "}
+        <strong style={{ color: "var(--text)" }}>
+          {promising.length ? `Leads: ${promising.join("; ")}.` : "No filter helped in both periods: the losses are not explained by trend, market direction, volume, RSI, stop width or chasing the open."}
+        </strong>
+      </p>
+      <TablePanel minWidth={1000}>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Filter, change in average R</th>
+              {ordered.map((c) => <th key={c.pattern} className="r" style={{ whiteSpace: "nowrap" }}><Name p={c.pattern} /></th>)}
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ fontWeight: 600 }}>No filter: training / later</td>
+              {ordered.map((c) => (
+                <td key={c.pattern} className="n" style={{ fontSize: 14 }}>
+                  {signed(c.base.train.avg_r, 2)} / {signed(c.base.test.avg_r, 2)}
+                </td>
+              ))}
+            </tr>
+            {names.map((k) => (
+              <tr key={k}>
+                <td style={{ fontSize: 14, maxWidth: 320 }}>{ordered[0].filters[k].label}</td>
+                {ordered.map((c) => {
+                  const f = c.filters[k];
+                  return (
+                    <td key={c.pattern} className="n" style={{ fontSize: 14 }}>
+                      <span className={toneOf(f.gain_train)}>{g(f.gain_train)}</span> / <span className={toneOf(f.gain_test)}>{g(f.gain_test)}</span>
+                      {f.promising && <span className="tag t-up" style={{ marginLeft: 6, fontSize: 11 }}>Lead</span>}
+                      <span className="sub-n">{f.share}% of trades</span>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TablePanel>
+      <p className="note">Each cell: change in average R per trade in training / later, keeping only trades that pass the filter.</p>
     </section>
   );
 }

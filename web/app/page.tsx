@@ -3,6 +3,7 @@ import BriefLines from "@/components/BriefLines";
 import RealityCheck from "@/components/RealityCheck";
 import WatchlistSection from "@/components/WatchlistSection";
 import { Bar, ChangeFigure, DashedNotice, TablePanel } from "@/components/ui";
+import { planHeading } from "@/lib/session";
 import { getBrief, getFlows, getSeries, getSetups, getStates, hasDb, type Brief, type FlowRow, type SeriesRow } from "@/lib/db";
 import { PATTERN_LABEL, PATTERN_ORDER, PATTERN_PLURAL, change, dayLong, dayShort, inr, plural, signed, toneOf } from "@/lib/format";
 import { outlookGroups } from "@/lib/outlook";
@@ -66,7 +67,7 @@ export default function Today() {
       {/* Setups */}
       <section className="sec" aria-labelledby="setups-h">
         <div className="sec-head">
-          <h2 className="sec-title" id="setups-h">Setups today</h2>
+          <h2 className="sec-title" id="setups-h">{setups[0] ? planHeading(setups[0].date).title : "Setups"}</h2>
           <span style={{ fontSize: 15, color: "var(--muted)" }}>
             <span className="mono" style={{ color: "var(--text)" }}>{setups.length}</span> found
             {setups.length > 0 && `: ${countsText(setups)}`}

@@ -9,7 +9,7 @@ import math
 import numpy as np
 import pandas as pd
 
-from engine.signals import backtest, patterns, state, timeframes
+from engine.signals import backtest, chart_patterns, patterns, state, timeframes
 
 MIN_TURNOVER = 5e7  # Rs 5 crore average daily traded value; thinner stocks are skipped
 VARIANTS = ["base", "regime", "trail", "regime_trail"]  # base must stay first
@@ -55,6 +55,8 @@ def run(conn) -> str:
     ).dropna(subset=["open", "high", "low", "close"])
     prices["volume"] = prices["volume"].fillna(0)
 
+    cp_rows, cp_samples = [], []
+    cp_base = {k: (0.0, 0) for k in ("all", "train", "test")}
     regime_up = market_regime(conn)
     # Market filter, per side: longs only while the Nifty 50 is above its 200-day average, shorts only below
     in_regime = lambda s: regime_up.get(s.date) is (s.side == "long")
@@ -67,6 +69,22 @@ def run(conn) -> str:
         last["date"], last["symbol"] = ind.index[-1], sym
         last["support"], last["resistance"] = state.levels(df)
         latest.append(last)
+
+        # Chart patterns: visible ones for every stock, 10-year samples for the Nifty 500 only
+        closes = df["close"].to_numpy(float)
+        for ev in chart_patterns.detect(df):
+            if ev.i >= len(df) - chart_patterns.RECENT:
+                cp_rows.append((sym, ev.date, ev.name, ev.bias, ev.detail))
+            if sym in universe:
+                f = chart_patterns.forward(closes, ev.i)
+                if f is not None:
+                    cp_samples.append((ev.name, ev.date, f))
+        if sym in universe and len(closes) > chart_patterns.HORIZON:
+            fwd = (closes[chart_patterns.HORIZON:] / closes[:-chart_patterns.HORIZON] - 1) * 100
+            in_train = np.array(df.index[:-chart_patterns.HORIZON]) <= backtest.TRAIN_END
+            ok = np.isfinite(fwd)
+            for k, m in (("all", ok), ("train", ok & in_train), ("test", ok & ~in_train)):
+                cp_base[k] = (cp_base[k][0] + float(fwd[m].sum()), cp_base[k][1] + int(m.sum()))
 
         raw = patterns.detect(df)
         # Liquidity: average daily traded value over the 20 days before the signal (no lookahead)
@@ -129,11 +147,13 @@ def run(conn) -> str:
     snap["breakdown"] = snap["breakdown"].astype(bool).astype(int)
     state_rows = [(r["symbol"], *(_clean(r[c]) for c in STATE_COLS)) for _, r in snap.iterrows()]
 
+    cp_stats = chart_patterns.summarise(cp_samples, cp_base, backtest.TRAIN_END)
     tf_status, tf_stats, tf_note = timeframes.run(prices, universe)
     bench = benchmark(prices[prices["symbol"].isin(universe)])
 
     with conn:  # one transaction: the dashboard never sees a half-rebuilt state
-        for t in ("signals", "trades", "pattern_stats", "stock_state", "tf_status", "tf_stats", "benchmark_daily"):
+        for t in ("signals", "trades", "pattern_stats", "stock_state", "tf_status", "tf_stats", "benchmark_daily",
+                  "chart_patterns", "chart_pattern_stats"):
             conn.execute(f"DELETE FROM {t}")
         conn.executemany("INSERT INTO signals (symbol, date, pattern, side, trend, entry, stop, target, detail) "
                          "VALUES (?,?,?,?,?,?,?,?,?)", sig_rows)
@@ -150,7 +170,9 @@ def run(conn) -> str:
         conn.executemany("INSERT INTO tf_status VALUES (?,?,?,?,?,?,?,?,?)", tf_status)
         conn.executemany("INSERT INTO tf_stats VALUES (?,?,?)", tf_stats)
         conn.executemany("INSERT INTO benchmark_daily VALUES (?,?,?,?)", bench)
+        conn.executemany("INSERT OR IGNORE INTO chart_patterns VALUES (?,?,?,?,?)", cp_rows)
+        conn.executemany("INSERT INTO chart_pattern_stats VALUES (?,?)", [(k, json.dumps(v)) for k, v in cp_stats.items()])
 
     closed = sum(t.outcome != "open" for t in all_trades)
     return (f"{len(sig_rows)} setups ({illiquid} skipped as illiquid), {closed} closed backtest trades, "
-            f"{len(state_rows)} stock states; {tf_note}")
+            f"{len(state_rows)} stock states, {len(cp_samples)} past chart patterns; {tf_note}")

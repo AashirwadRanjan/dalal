@@ -74,12 +74,23 @@ def pending_events(conn, mine: set[str] | None = None) -> list[dict]:
     return [e for e in out if e["symbol"] in mine or (e["tf"] == "W" and e["pattern"] in ALERT_WEEKLY)]
 
 
-def describe(e: dict) -> str:
+def charts_for(conn) -> dict[str, list[str]]:
+    """symbol -> ["▲ double bottom", ...] for chart patterns completed in the last few bars."""
+    if not conn.execute("SELECT 1 FROM sqlite_master WHERE name = 'chart_patterns'").fetchone():
+        return {}
+    out: dict[str, list[str]] = {}
+    for sym, name, bias in conn.execute("SELECT symbol, name, bias FROM chart_patterns ORDER BY date DESC"):
+        out.setdefault(sym, []).append(f"{'▲' if bias == 'bullish' else '▼'} {name.replace('_', ' ')}")
+    return out
+
+
+def describe(e: dict, charts: list[str] | None = None) -> str:
     what = f"{e['side']} {LABEL.get(e['pattern'], e['pattern'])}, {'weekly' if e['tf'] == 'W' else 'daily'}"
     s, ev = e["symbol"], e["event"]
     if ev == "new":
         return (f"🆕 {s}: {what} setup. Enters at the next open (ref {_fmt(e['ref'])}), "
-                f"stop {_fmt(e['stop'])}, target {_fmt(e['target'])}")
+                f"stop {_fmt(e['stop'])}, target {_fmt(e['target'])}"
+                + (f". Chart: {', '.join(charts)}" if charts else ". No chart pattern in the last 5 days"))
     if ev == "entered":
         return f"▶️ {s}: {what} entered at {_fmt(e['entry'])} ({e['date']})"
     if ev == "skipped":
@@ -97,7 +108,8 @@ def describe(e: dict) -> str:
 
 def event_lines(conn, mine: set[str] | None = None) -> tuple[list[str], list[int]]:
     ev = pending_events(conn, mine)
-    lines = [describe(e) for e in ev[:MAX_EVENTS]]
+    charts = charts_for(conn)
+    lines = [describe(e, charts.get(e["symbol"])) for e in ev[:MAX_EVENTS]]
     if len(ev) > MAX_EVENTS:
         lines.append(f"…and {len(ev) - MAX_EVENTS} more on the Live record page")
     return lines, [e["rowid"] for e in ev]

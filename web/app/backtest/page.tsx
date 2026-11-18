@@ -3,9 +3,9 @@ import Link from "next/link";
 import BenchmarkChart from "@/components/BenchmarkChart";
 import RunningTotal from "@/components/RunningTotal";
 import { DashedNotice, PageHead, TablePanel } from "@/components/ui";
-import { getBenchmark, getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
+import { getBenchmark, getChartPatternStats, getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
-import { OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, SIDE_OF, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
+import { CHART_LABEL, CHART_ORDER, OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, SIDE_OF, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
 
 /** Pattern name with a Short tag for the mirrored short rules. */
 const Name = ({ p }: { p: string }) => (
@@ -100,6 +100,8 @@ export default function BacktestPage() {
           <Variants stats={e.stats} trailHold={params?.trail_max_hold ?? 60} />
 
           <WeeklyMonthly />
+
+          <ChartPatternTable />
 
           <section style={{ paddingTop: 56 }}>
             <div className="sec-head">
@@ -382,6 +384,53 @@ function ByYear({ stats }: { stats: ReturnType<typeof edgeSummary>["stats"] }) {
           </tbody>
         </table>
       </TablePanel>
+    </section>
+  );
+}
+
+/** Chart patterns are context, not trades: judged by the next 10 days against the average stock, in their direction. */
+function ChartPatternTable() {
+  const st = getChartPatternStats();
+  const rows = CHART_ORDER.map((n) => st[n]).filter((x) => x && x.n > 0);
+  if (!rows.length) return null;
+  const held = rows.filter((r) => r.reliable).map((r) => CHART_LABEL[r.name]);
+  const pp = (x?: number) => (x == null ? "–" : `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(2)}`);
+  return (
+    <section style={{ paddingTop: 56 }}>
+      <h2 className="sec-title">Chart patterns</h2>
+      <p className="sec-sub">
+        Shown next to setups as context, not traded. For each, the stock’s return over the next {rows[0].horizon} days compared
+        with the average stock over the same days, in the pattern’s direction: a bearish pattern “works” when the stock does
+        worse than average. It held up if it beat the average by 0.25% or more in training and again later, on 100 or more
+        later cases. {held.length ? `Held up: ${held.join(", ")}.` : "None held up."} The rest mean little on their own.
+      </p>
+      <TablePanel minWidth={860}>
+        <table className="tbl">
+          <thead>
+            <tr>
+              <th>Pattern</th><th className="r">Times</th><th className="r">Vs average, %</th><th className="r">Moved its way</th>
+              <th className="r">Training, %</th><th className="r">Later, %</th><th>Held up?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.name}>
+                <td>
+                  <span className={`tag ${r.bias === "bullish" ? "t-up" : "t-down"}`} style={{ marginRight: 8, fontSize: 12 }}>{r.bias === "bullish" ? "Bullish" : "Bearish"}</span>
+                  <span style={{ fontWeight: 600 }}>{CHART_LABEL[r.name]}</span>
+                </td>
+                <td className="n">{r.n.toLocaleString("en-IN")}</td>
+                <td className={`n ${toneOf(r.edge_pct)}`}>{pp(r.edge_pct)}</td>
+                <td className="n">{r.hit_pct}%</td>
+                <td className={`n ${toneOf(r.train.edge_pct)}`}>{pp(r.train.edge_pct)}</td>
+                <td className={`n ${toneOf(r.test.edge_pct)}`}>{pp(r.test.edge_pct)}<span className="sub-n">{r.test.n} cases</span></td>
+                <td>{r.reliable ? <span className="tag t-up">Held up</span> : <span className="tag t-flat">No</span>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </TablePanel>
+      <p className="note">“Moved its way” is how often the stock went the pattern’s way at all; with most stocks rising over 10 years, bearish patterns rarely see falls even when they lag.</p>
     </section>
   );
 }

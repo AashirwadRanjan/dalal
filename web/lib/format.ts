@@ -107,6 +107,29 @@ export const PATTERN_COLOR: Record<string, string> = {
   resistance_reject: "var(--text-2)",
 };
 
+export const CHART_LABEL: Record<string, string> = {
+  double_bottom: "Double bottom",
+  double_top: "Double top",
+  inverse_head_shoulders: "Inverse head and shoulders",
+  head_shoulders: "Head and shoulders",
+  ascending_triangle: "Ascending triangle",
+  descending_triangle: "Descending triangle",
+  bullish_engulfing: "Bullish engulfing",
+  bearish_engulfing: "Bearish engulfing",
+  hammer: "Hammer",
+  shooting_star: "Shooting star",
+};
+export const CHART_ORDER = Object.keys(CHART_LABEL);
+
+/** One line on what a chart pattern has meant: "did 0.5% worse than the average stock over 10 days; held up later". */
+export function chartRecord(s: { edge_pct?: number; horizon: number; bias: string; reliable: boolean; test: { n: number; edge_pct?: number } } | undefined) {
+  if (!s || s.edge_pct == null) return "No 10-year record yet.";
+  const e = s.edge_pct;
+  const dir = s.bias === "bullish" ? (e >= 0 ? "better" : "worse") : e >= 0 ? "worse" : "better";
+  const later = s.reliable ? "and it held up in the later period." : "but it has not held up reliably, so it means little on its own.";
+  return `Over 10 years, stocks did ${Math.abs(e).toFixed(2)}% ${dir} than the average stock in the next ${s.horizon} days, ${later}`;
+}
+
 export const OUTCOME_LABEL: Record<string, string> = {
   target: "Target hit",
   stop: "Stopped out",

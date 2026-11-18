@@ -119,6 +119,21 @@ CREATE TABLE IF NOT EXISTS benchmark_daily (
     stocks INTEGER                 -- how many stocks contributed that day
 );
 
+-- Chart patterns visible in the last few bars, and what each pattern has meant over 10 years
+-- (engine/signals/chart_patterns.py). Rebuilt every run.
+CREATE TABLE IF NOT EXISTS chart_patterns (
+    symbol TEXT NOT NULL,
+    date   TEXT NOT NULL,          -- the bar that completed the pattern
+    name   TEXT NOT NULL,          -- double_bottom | head_shoulders | hammer | ...
+    bias   TEXT NOT NULL,          -- bullish | bearish
+    detail TEXT,
+    PRIMARY KEY (symbol, date, name)
+);
+CREATE TABLE IF NOT EXISTS chart_pattern_stats (
+    name  TEXT PRIMARY KEY,
+    stats TEXT NOT NULL            -- JSON: n, avg_pct, edge_pct vs the average stock, hit_pct, train/test
+);
+
 -- One market brief per trading day (engine/summary.py)
 CREATE TABLE IF NOT EXISTS daily_brief (
     date TEXT PRIMARY KEY,

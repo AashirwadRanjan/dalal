@@ -3,15 +3,15 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Trend } from "./ui";
-import type { Setup } from "@/lib/db";
-import { PATTERN_LABEL, PATTERN_ORDER, PATTERN_PLURAL, SIDE_OF, inr } from "@/lib/format";
+import type { ChartPattern, Setup } from "@/lib/db";
+import { CHART_LABEL, PATTERN_LABEL, PATTERN_ORDER, PATTERN_PLURAL, SIDE_OF, inr } from "@/lib/format";
 
 type Sort = "volx" | "risk" | "rr";
 type Side = "all" | "long" | "short";
 type Row = Setup & { risk: number; rr: number };
 
 /** Every setup from the latest close: long/short and pattern chips, "Uptrends only" toggle and a sort. */
-export default function SetupsTable({ setups }: { setups: Setup[] }) {
+export default function SetupsTable({ setups, charts = {} }: { setups: Setup[]; charts?: Record<string, ChartPattern[]> }) {
   const [side, setSide] = useState<Side>("all");
   const [pat, setPat] = useState<string>("all");
   const [up, setUp] = useState(false);
@@ -93,7 +93,15 @@ export default function SetupsTable({ setups }: { setups: Setup[] }) {
                     <span className={`tag ${r.side === "long" ? "t-up" : "t-down"}`}>{r.side === "long" ? "Long" : "Short"}</span>
                     {r.side === "short" && !r.fno && <span className="nm" style={{ fontSize: 13 }}>No F&amp;O: intraday only</span>}
                   </td>
-                  <td style={{ fontSize: 15 }}>{PATTERN_LABEL[r.pattern]}</td>
+                  <td style={{ fontSize: 15 }}>
+                    {PATTERN_LABEL[r.pattern]}
+                    {(charts[r.symbol] ?? []).map((c) => (
+                      <span key={c.name + c.date} className="nm" style={{ fontSize: 13, color: c.bias === "bullish" ? "var(--up)" : "var(--down)" }}>
+                        {c.bias === "bullish" ? "▲" : "▼"} {CHART_LABEL[c.name] ?? c.name}
+                        {(c.bias === "bullish") !== (r.side === "long") ? " (disagrees)" : ""}
+                      </span>
+                    ))}
+                  </td>
                   <td><Trend trend={r.trend} /></td>
                   <td className="n">{inr(r.entry)}</td>
                   <td className="n down">
@@ -114,7 +122,8 @@ export default function SetupsTable({ setups }: { setups: Setup[] }) {
       </div>
       <div className="note" role="status">
         Showing {shown.length} of {rows.length} setups. Entry is the next open after the setup; the price shown is the
-        latest close. A short needs stock futures or puts to hold overnight; only F&amp;O stocks have them. 1 to 1 means the target is as far from the entry as the stop. Volume is the day’s volume compared
+        latest close. A short needs stock futures or puts to hold overnight; only F&amp;O stocks have them. ▲ and ▼ mark
+        chart patterns completed in the last five days; see the backtest page for what each has meant. 1 to 1 means the target is as far from the entry as the stop. Volume is the day’s volume compared
         with its 20-day average.
       </div>
     </>

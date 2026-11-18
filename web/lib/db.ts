@@ -496,3 +496,32 @@ export function getLive(): { rows: LiveRow[]; events: LiveEvent[] } {
     }) ?? { rows: [], events: [] }
   );
 }
+
+// ---- Chart patterns (engine/signals/chart_patterns.py): context next to setups, with their 10-year record ----
+
+export type ChartPattern = { symbol: string; date: string; name: string; bias: "bullish" | "bearish"; detail: string };
+type CpBlock = { n: number; avg_pct?: number; base_pct?: number; edge_pct?: number; hit_pct?: number };
+export type ChartPatternStats = CpBlock & {
+  name: string; bias: "bullish" | "bearish"; horizon: number; train: CpBlock; test: CpBlock; train_end: string; reliable: boolean;
+};
+
+/** Patterns completed in the last few bars; all stocks, or one. Newest first. */
+export function getChartPatterns(symbol?: string): ChartPattern[] {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "chart_patterns")) return [];
+      const sql = `SELECT * FROM chart_patterns ${symbol ? "WHERE symbol = ?" : ""} ORDER BY date DESC, name`;
+      return db.prepare(sql).all(...(symbol ? [symbol] : [])) as ChartPattern[];
+    }) ?? []
+  );
+}
+
+export function getChartPatternStats(): Record<string, ChartPatternStats> {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "chart_pattern_stats")) return {};
+      const rows = db.prepare("SELECT name, stats FROM chart_pattern_stats").all() as { name: string; stats: string }[];
+      return Object.fromEntries(rows.map((r) => [r.name, { name: r.name, ...JSON.parse(r.stats) }]));
+    }) ?? {}
+  );
+}

@@ -6,9 +6,9 @@ import RealityCheck from "@/components/RealityCheck";
 import StockChart from "@/components/StockChart";
 import WatchStar from "@/components/WatchStar";
 import { ChangeFigure, DashedNotice, ReadTag, VerdictCard } from "@/components/ui";
-import { getNewsBundle, getPatternStats, getSetups, getState, getStock, getStockSignals, getTfStatus, getTrades, type TfStatus } from "@/lib/db";
+import { getChartPatternStats, getChartPatterns, getNewsBundle, getPatternStats, getSetups, getState, getStock, getStockSignals, getTfStatus, getTrades, type TfStatus } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
-import { PATTERN_CODE, PATTERN_LABEL, PATTERN_ORDER, SIDE_OF, dayShort, inr } from "@/lib/format";
+import { CHART_LABEL, PATTERN_CODE, PATTERN_LABEL, PATTERN_ORDER, SIDE_OF, chartRecord, dayShort, inr } from "@/lib/format";
 import { isWatched } from "@/lib/portfolio";
 import { indicators, ladder, longTerm, plainWords, shortTerm, type Check } from "@/lib/stockview";
 
@@ -127,6 +127,7 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
               <div><div className="fig-label">Target, {(Math.abs(lv.target - lv.entry) / Math.abs(lv.entry - lv.stop)).toFixed(1)} to 1</div><div className="fig-m up">{inr(lv.target)}</div></div>
             </div>
           )}
+          <ChartLine symbol={symbol} />
           <div style={{ borderTop: "1px solid var(--line)", marginTop: 28, paddingTop: 20 }}>
             <div className="fig-label" style={{ marginBottom: 8 }}>By chart timeframe</div>
             {[
@@ -205,6 +206,57 @@ function CheckRow({ c }: { c: Check }) {
   );
 }
 
+/** One line in the short-term card: chart patterns completed in the last five days. */
+function ChartLine({ symbol }: { symbol: string }) {
+  const cps = getChartPatterns(symbol);
+  return (
+    <p style={{ margin: "20px 0 0", fontSize: 15, color: "var(--text-2)" }}>
+      Chart patterns, last five days:{" "}
+      {cps.length
+        ? cps.map((c, i) => (
+            <span key={c.name + c.date}>
+              {i > 0 && ", "}
+              <span className={c.bias === "bullish" ? "up" : "down"}>{c.bias === "bullish" ? "▲" : "▼"} {CHART_LABEL[c.name] ?? c.name}</span>{" "}
+              ({c.bias}, {dayShort(c.date)})
+            </span>
+          ))
+        : "none."}{" "}
+      <a href="?tab=technicals" style={{ fontWeight: 500 }}>Details</a>
+    </p>
+  );
+}
+
+function ChartPatterns({ symbol }: { symbol: string }) {
+  const cps = getChartPatterns(symbol);
+  const stats = getChartPatternStats();
+  return (
+    <section style={{ paddingTop: 40 }}>
+      <h2 className="sec-title">Chart patterns</h2>
+      <p className="sec-sub">
+        Classic patterns completed in the last five days, found by fixed rules on confirmed swing points. Each comes with
+        what it has meant over 10 years. Most mean little on their own.
+      </p>
+      {cps.length ? (
+        <div className="lines">
+          {cps.map((c) => (
+            <div key={c.name + c.date}>
+              <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+                <span className={`tag ${c.bias === "bullish" ? "t-up" : "t-down"}`}>{c.bias === "bullish" ? "Bullish" : "Bearish"}</span>
+                <strong>{CHART_LABEL[c.name] ?? c.name}</strong>
+                <span className="mono muted" style={{ fontSize: 13 }}>{dayShort(c.date)}</span>
+              </div>
+              <div style={{ fontSize: 15, color: "var(--neutral)", marginTop: 4 }}>{c.detail}.</div>
+              <div style={{ fontSize: 14, color: "var(--text-2)", marginTop: 2 }}>{chartRecord(stats[c.name])}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <DashedNotice>No chart pattern completed in the last five days.</DashedNotice>
+      )}
+    </section>
+  );
+}
+
 function Technicals({ symbol, st }: { symbol: string; st: NonNullable<ReturnType<typeof getState>> }) {
   const { short } = context(symbol, st);
   const rows = indicators(st);
@@ -215,6 +267,7 @@ function Technicals({ symbol, st }: { symbol: string; st: NonNullable<ReturnType
         <h2 className="panel-title" style={{ marginBottom: 10 }}>In plain words</h2>
         <p style={{ margin: 0, fontSize: 17, maxWidth: 900, color: "var(--neutral)" }}>{plainWords(st, short.levels, short.status)}</p>
       </section>
+      <ChartPatterns symbol={symbol} />
       <section className="tech-cols">
         <div>
           <h2 className="sec-title">Indicators</h2>

@@ -1,5 +1,5 @@
 import type { EquityPoint } from "@/lib/db";
-import { PATTERN_COLOR, PATTERN_LABEL, PATTERN_ORDER, monthYear, rMult, signed } from "@/lib/format";
+import { LONG_ORDER, PATTERN_COLOR, PATTERN_LABEL, monthYear, rMult, signed } from "@/lib/format";
 
 const W = 1000, H = 340;
 
@@ -13,7 +13,7 @@ export default function RunningTotal({ points }: { points: EquityPoint[] }) {
   const xi = new Map(dates.map((d, i) => [d, i]));
   const x = (d: string) => ((xi.get(d) ?? 0) / (dates.length - 1)) * W;
 
-  const series = PATTERN_ORDER.map((p) => {
+  const series = LONG_ORDER.map((p) => {
     let cum = 0;
     const pts = points.filter((q) => q.pattern === p).map((q) => ({ d: q.date, v: (cum += q.r) }));
     return { p, pts, total: cum };

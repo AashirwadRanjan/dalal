@@ -1,6 +1,6 @@
 /** Plain names and sources for each engine step (engine/run_daily.py), as worded on the Data health board. */
 export const STEP_INFO: Record<string, { name: string; source: string }> = {
-  instruments: { name: "Stock list", source: "NSE Nifty 500 file" },
+  instruments: { name: "Stock list", source: "NSE Nifty 500, equity and F&O lists" },
   prices: { name: "Prices", source: "Yahoo Finance, end of day" },
   market_series: { name: "Indices and world", source: "Yahoo Finance" },
   fii_dii: { name: "Fund flows", source: "NSE website" },

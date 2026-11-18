@@ -11,7 +11,7 @@ export const metadata: Metadata = { title: "Data health" };
 const FRAGILE = [
   { name: "NSE fund flows", text: "The least stable source. It needs a cookie from the NSE home page, returns only the latest day, and can stop working without warning." },
   { name: "Yahoo Finance prices", text: "Free and end of day only. Prices are not adjusted for dividends, and a few stocks have no data at all." },
-  { name: "NSE stock list", text: "NSE sometimes blocks scripts. Save the Nifty 500 file as data/nifty500.csv as a fallback." },
+  { name: "NSE stock list", text: "NSE sometimes blocks scripts. Save the files by hand as data/nifty500.csv, data/equity_l.csv and data/fo_mktlots.csv as a fallback." },
 ];
 
 /** Plain-English finding for a step, from database counts. Failures show the logged error instead. */

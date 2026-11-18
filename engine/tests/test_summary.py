@@ -10,7 +10,7 @@ def make_conn(changes, nifty=(25000.0, 25100.0), sp500=(7500.0, 7400.0), fii=419
     conn.executescript(db.SCHEMA)
     d = "2026-11-17"
     for i, (sym, sector, chg) in enumerate(changes):
-        conn.execute("INSERT INTO instruments VALUES (?,?,?,?,?)", (sym, f"{sym} Ltd.", sector, "", f"{sym}.NS"))
+        conn.execute("INSERT INTO instruments (symbol, name, sector, isin, yf_symbol, in_index) VALUES (?,?,?,?,?,1)", (sym, f"{sym} Ltd.", sector, "", f"{sym}.NS"))
         conn.execute(
             "INSERT INTO stock_state (symbol, date, close, chg_1d, dma50, dma200, trend, volx, breakdown) "
             "VALUES (?,?,?,?,?,?,?,?,0)",

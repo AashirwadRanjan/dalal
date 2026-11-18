@@ -7,10 +7,10 @@ import { abbreviates, words } from "@/lib/match";
 type Item = { symbol: string; name: string };
 
 /** Up to 5 matches: symbol prefix first, then symbol contains, then name contains. */
-export function matchStocks(items: Item[], q: string, limit = 5): Item[] {
+export function matchStocks<T extends Item>(items: T[], q: string, limit = 5): T[] {
   const n = q.trim().toLowerCase();
   if (!n) return [];
-  const score = (i: Item) => {
+  const score = (i: T) => {
     const s = i.symbol.toLowerCase(), nm = i.name.toLowerCase();
     if (s === n) return 0;
     if (s.startsWith(n)) return 1;

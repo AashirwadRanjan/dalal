@@ -73,25 +73,44 @@ export const PATTERN_LABEL: Record<string, string> = {
   breakout: "Breakout",
   volume_spike: "Volume spike",
   support_bounce: "Support bounce",
+  breakdown: "Breakdown",
+  selling_spike: "Selling spike",
+  resistance_reject: "Resistance rejection",
 };
 export const PATTERN_PLURAL: Record<string, string> = {
   breakout: "breakouts",
   volume_spike: "volume spikes",
   support_bounce: "support bounces",
+  breakdown: "breakdowns",
+  selling_spike: "selling spikes",
+  resistance_reject: "resistance rejections",
 };
-export const PATTERN_ORDER = ["breakout", "volume_spike", "support_bounce"];
+export const LONG_ORDER = ["breakout", "volume_spike", "support_bounce"];
+export const SHORT_ORDER = ["breakdown", "selling_spike", "resistance_reject"];
+/** Every pattern, longs first. */
+export const PATTERN_ORDER = [...LONG_ORDER, ...SHORT_ORDER];
+export const SIDE_OF: Record<string, "long" | "short"> = Object.fromEntries([
+  ...LONG_ORDER.map((p) => [p, "long"]),
+  ...SHORT_ORDER.map((p) => [p, "short"]),
+]);
 /** One-letter chart marker codes; full names in the key under the chart */
-export const PATTERN_CODE: Record<string, string> = { breakout: "B", volume_spike: "V", support_bounce: "S" };
-/** Fixed series colour per pattern (backtest board): amber, sky, up */
+export const PATTERN_CODE: Record<string, string> = {
+  breakout: "B", volume_spike: "V", support_bounce: "S", breakdown: "D", selling_spike: "X", resistance_reject: "R",
+};
+/** Fixed series colour per long pattern (running-total chart): amber, sky, up. Shorts are tables only. */
 export const PATTERN_COLOR: Record<string, string> = {
   breakout: "var(--amber)",
   volume_spike: "var(--sky)",
   support_bounce: "var(--up)",
+  breakdown: "var(--down)",
+  selling_spike: "var(--neutral)",
+  resistance_reject: "var(--text-2)",
 };
 
 export const OUTCOME_LABEL: Record<string, string> = {
   target: "Target hit",
   stop: "Stopped out",
+  trail: "Trailing stop",
   time: "Time limit",
   open: "Still open",
 };

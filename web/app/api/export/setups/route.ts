@@ -9,10 +9,11 @@ export function GET() {
   const date = s[0]?.date ?? "none";
   return csvResponse(
     toCsv(
-      ["date", "symbol", "name", "sector", "pattern", "trend", "entry_ref_close", "stop", "target", "risk_pct", "reward_vs_risk", "volume_vs_20d"],
+      ["date", "symbol", "name", "sector", "side", "fno", "pattern", "trend", "entry_ref_close", "stop", "target", "risk_pct", "reward_vs_risk", "volume_vs_20d"],
       s.map((x) => [
-        x.date, x.symbol, x.name, x.sector, x.pattern, x.trend, x.entry, x.stop, x.target,
-        (((x.entry - x.stop) / x.entry) * 100).toFixed(2), ((x.target - x.entry) / (x.entry - x.stop)).toFixed(2), x.volx?.toFixed(2),
+        x.date, x.symbol, x.name, x.sector, x.side, x.fno ? "yes" : "no", x.pattern, x.trend, x.entry, x.stop, x.target,
+        ((Math.abs(x.entry - x.stop) / x.entry) * 100).toFixed(2),
+        (Math.abs(x.target - x.entry) / Math.abs(x.entry - x.stop)).toFixed(2), x.volx?.toFixed(2),
       ])
     ),
     `dalal-setups-${date}.csv`

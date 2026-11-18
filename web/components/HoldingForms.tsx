@@ -15,7 +15,7 @@ function Status({ s }: { s: FormState }) {
 
 export default function HoldingForms({
   symbols, held,
-}: { symbols: { symbol: string; name: string }[]; held: Record<string, { qty: number; avg: number }> }) {
+}: { symbols: { symbol: string; name: string; priced?: number }[]; held: Record<string, { qty: number; avg: number }> }) {
   const [impState, imp, importing] = useActionState(importHoldings, {});
 
   return (

@@ -12,7 +12,9 @@ CREATE TABLE IF NOT EXISTS instruments (
     name       TEXT,
     sector     TEXT,
     isin       TEXT,
-    yf_symbol  TEXT NOT NULL       -- Yahoo ticker, e.g. RELIANCE.NS
+    yf_symbol  TEXT NOT NULL,      -- Yahoo ticker, e.g. RELIANCE.NS
+    in_index   INTEGER NOT NULL DEFAULT 0,  -- 1 = Nifty 500 (backtest and screen universe)
+    fno        INTEGER NOT NULL DEFAULT 0   -- 1 = has stock futures and options (positional shorts possible)
 );
 
 CREATE TABLE IF NOT EXISTS prices_daily (
@@ -46,7 +48,8 @@ CREATE TABLE IF NOT EXISTS fii_dii_daily (
 CREATE TABLE IF NOT EXISTS signals (
     symbol  TEXT NOT NULL,
     date    TEXT NOT NULL,         -- signal bar; trade would enter next open
-    pattern TEXT NOT NULL,         -- breakout | volume_spike | support_bounce
+    pattern TEXT NOT NULL,         -- see patterns.PATTERNS (long) and patterns.SHORT_PATTERNS
+    side    TEXT NOT NULL,         -- long | short
     trend   TEXT,                  -- stock's trend at the signal: up | sideways | down | unknown
     entry   REAL,                  -- reference: signal bar close
     stop    REAL,
@@ -59,11 +62,12 @@ CREATE TABLE IF NOT EXISTS trades (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     symbol      TEXT NOT NULL,
     pattern     TEXT NOT NULL,
+    side        TEXT NOT NULL,     -- long | short
     signal_date TEXT NOT NULL,
     trend       TEXT,
     entry_date  TEXT, entry REAL, stop REAL, target REAL,
     exit_date   TEXT, exit REAL,
-    outcome     TEXT,              -- target | stop | time | open
+    outcome     TEXT,              -- target | stop | trail | time | open
     r           REAL,              -- result in multiples of initial risk, after costs
     ret_pct     REAL,
     bars        INTEGER
@@ -164,7 +168,11 @@ CREATE TABLE IF NOT EXISTS ingest_log (
 
 
 # Derived tables are rebuilt every run, so an outdated layout is simply dropped and recreated.
-DERIVED_COLUMNS = {"signals": "trend", "trades": "trend", "stock_state": "resistance"}
+DERIVED_COLUMNS = {"signals": "side", "trades": "side", "stock_state": "resistance"}
+ADDED_COLUMNS = [
+    ("instruments", "in_index", "INTEGER NOT NULL DEFAULT 0"),
+    ("instruments", "fno", "INTEGER NOT NULL DEFAULT 0"),
+]
 
 
 def connect() -> sqlite3.Connection:
@@ -174,5 +182,28 @@ def connect() -> sqlite3.Connection:
         cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
         if cols and col not in cols:
             conn.execute(f"DROP TABLE {table}")
+    # Kept tables that gained columns: add them in place (never drop user-relevant history)
+    for table, col, decl in ADDED_COLUMNS:
+        cols = [r[1] for r in conn.execute(f"PRAGMA table_info({table})")]
+        if cols and col not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+            if (table, col) == ("instruments", "in_index"):
+                conn.execute("UPDATE instruments SET in_index = 1")  # every row so far came from the Nifty 500
     conn.executescript(SCHEMA)
     return conn
+
+
+def portfolio_symbols() -> set[str]:
+    """Symbols in your holdings and watchlist (data/portfolio.db, owned by the web app), read-only."""
+    path = Path(os.environ.get("PORTFOLIO_DB", ROOT / "data" / "portfolio.db"))
+    if not path.exists():
+        return set()
+    pf = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+    try:
+        out = set()
+        for table in ("holdings", "watchlist"):
+            if pf.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+                out |= {r[0] for r in pf.execute(f"SELECT symbol FROM {table}")}
+        return out
+    finally:
+        pf.close()

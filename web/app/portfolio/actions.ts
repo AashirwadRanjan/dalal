@@ -7,8 +7,6 @@ import { deleteHolding, normSymbol, parseHoldings, upsertHolding } from "@/lib/p
 
 export type FormState = { ok?: string; error?: string };
 
-const known = () => new Set(getInstruments().map((i) => i.symbol));
-
 const whyNot = (raw: string, r: ReturnType<typeof resolveStock>) =>
   r.ok ? "" : r.reason === "ambiguous" ? `${raw} (could be ${r.candidates.join(", ")}; use the symbol)` : raw;
 
@@ -21,14 +19,15 @@ export async function addHolding(_: FormState, fd: FormData): Promise<FormState>
     return {
       error: r.reason === "ambiguous"
         ? `“${raw}” could be ${r.candidates.join(", ")}. Enter the NSE symbol.`
-        : `“${raw}” isn't in the Nifty 500 list, so there's no data to analyse it.`,
+        : `“${raw}” isn't an NSE-listed stock. Check the name or use the NSE symbol.`,
     };
   const symbol = r.symbol;
   if (!(qty > 0)) return { error: "Quantity must be more than 0." };
   if (!(avg > 0)) return { error: "Average price must be more than 0." };
   upsertHolding(symbol, qty, avg);
   revalidatePath("/portfolio");
-  return { ok: `Saved ${symbol}${r.how === "name" ? ` (matched from “${raw}”)` : ""}: ${qty} at ₹${avg}.` };
+  const later = !getInstruments().find((i) => i.symbol === symbol)?.priced ? " Its prices load with the next Fetch latest." : "";
+  return { ok: `Saved ${symbol}${r.how === "name" ? ` (matched from “${raw}”)` : ""}: ${qty} at ₹${avg}.${later}` };
 }
 
 export async function importHoldings(_: FormState, fd: FormData): Promise<FormState> {
@@ -41,7 +40,7 @@ export async function importHoldings(_: FormState, fd: FormData): Promise<FormSt
   for (const { row, r } of good) upsertHolding(r.symbol, row.qty, row.avg);
   revalidatePath("/portfolio");
   const byName = good.filter((x) => x.r.how === "name").map((x) => `${x.row.raw} → ${x.r.symbol}`);
-  const problems = [...errors, ...(bad.length ? [`Not found in the Nifty 500 list, skipped: ${bad.join(", ")}`] : [])];
+  const problems = [...errors, ...(bad.length ? [`Not found among NSE-listed stocks, skipped: ${bad.join(", ")}`] : [])];
   return {
     ok: good.length
       ? `Imported ${good.length} holding${good.length > 1 ? "s" : ""}.${byName.length ? ` Matched by company name: ${byName.join(", ")}.` : ""}`

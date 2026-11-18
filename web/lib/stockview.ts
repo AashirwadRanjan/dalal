@@ -12,15 +12,26 @@ const above = (a: number, b: number) => `${Math.abs(pctOf(a, b)).toFixed(1)}% ${
 // ---------- short term ----------
 
 export type Levels = { entry: number; stop: number; target: number };
-export type ShortTerm = { status: "today" | "open" | "none"; title: string; text: string; levels?: Levels; pattern?: string };
+export type ShortTerm = {
+  status: "today" | "open" | "none"; side?: "long" | "short"; title: string; text: string; levels?: Levels; pattern?: string;
+};
+
+const Side = (s: "long" | "short") => (s === "long" ? "Long" : "Short");
+const shortNote = (st: StockState, side: "long" | "short") =>
+  side === "short"
+    ? st.fno
+      ? " A short held overnight needs this stock's futures or puts."
+      : " This stock has no futures or options, so it can only be shorted intraday."
+    : "";
 
 export function shortTerm(st: StockState, today: Setup[], trades: TradeRow[]): ShortTerm {
   const fired = today[0];
   if (fired) {
     return {
       status: "today",
-      title: "Long setup today",
-      text: `A ${PATTERN_LABEL[fired.pattern].toLowerCase()} setup fired on the ${dayShort(fired.date)} close. A trade would enter at the next open, not at this price.`,
+      side: fired.side,
+      title: `${Side(fired.side)} setup today`,
+      text: `A ${PATTERN_LABEL[fired.pattern].toLowerCase()} setup fired on the ${dayShort(fired.date)} close. A trade would enter at the next open, not at this price.${shortNote(st, fired.side)}`,
       levels: { entry: fired.entry, stop: fired.stop, target: fired.target },
       pattern: fired.pattern,
     };
@@ -29,8 +40,9 @@ export function shortTerm(st: StockState, today: Setup[], trades: TradeRow[]): S
   if (open) {
     return {
       status: "open",
-      title: "Long setup is open",
-      text: `A ${PATTERN_LABEL[open.pattern].toLowerCase()} trade was triggered on ${dayShort(open.entry_date)}. The price is ${above(st.close, open.entry)} the entry.`,
+      side: open.side,
+      title: `${Side(open.side)} setup is open`,
+      text: `A ${PATTERN_LABEL[open.pattern].toLowerCase()} trade was triggered on ${dayShort(open.entry_date)}. The price is ${above(st.close, open.entry)} the entry.${shortNote(st, open.side)}`,
       levels: { entry: open.entry, stop: open.stop, target: open.target },
       pattern: open.pattern,
     };
@@ -41,7 +53,7 @@ export function shortTerm(st: StockState, today: Setup[], trades: TradeRow[]): S
     title: "No setup",
     text: last
       ? `No rule has fired recently. The last setup was a ${PATTERN_LABEL[last.pattern].toLowerCase()} on ${dayShort(last.signal_date)}, which ended ${last.outcome === "target" ? "at its target" : last.outcome === "stop" ? "at its stop" : "at the time limit"}.`
-      : "No setup has fired on this stock in the last two years.",
+      : "No setup has fired on this stock in the stored history.",
   };
 }
 

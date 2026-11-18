@@ -11,14 +11,15 @@ Execution model (deliberately conservative):
     trail   no target; the stop ratchets up to the trailing stop (22-day high - 3 ATR, known at the prior
             close) and never moves down; exit at the close after TRAIL_MAX_HOLD bars
 - A trade still running when data ends is 'open'.
-- COST_PCT per side covers brokerage, STT and exchange charges (approx, delivery).
+- COST_PCT per side covers brokerage, STT and exchange charges (approx, delivery). Shorts use the same costs;
+  in practice they go through futures (lower STT, but a lot size and margin) or puts (premium decay).
 - One trade at a time per stock per pattern: signals while a trade is live are ignored.
 """
 from dataclasses import dataclass
 
 import numpy as np
 
-from engine.signals.patterns import Signal
+from engine.signals.patterns import SIDE, Signal
 
 MAX_HOLD = 20
 TRAIL_MAX_HOLD = 60
@@ -42,17 +43,26 @@ class Trade:
     bars: int
     exit_i: int
 
+    @property
+    def side(self) -> str:
+        return SIDE[self.pattern]
+
 
 def simulate(sig: Signal, o, h, l, c, dates, mode: str = "target", trail=None) -> Trade | None:
+    """Long or short, by sig.side. For a short every comparison flips: the stop sits above, the target below,
+    fills slip upward, and `trail` must be the short-side trailing stop (it only ever moves down)."""
     n = len(c)
     e = sig.i + 1
     if e >= n:
         return None  # signal on the latest bar: not entered yet
+    short = sig.side == "short"
+    sgn = -1 if short else 1
     slip = SLIPPAGE_PCT / 100
-    if not (sig.stop < o[e] and (mode == "trail" or o[e] < sig.target)):
-        return None  # gapped past a level; no trade
-    entry = o[e] * (1 + slip)
+    beyond = lambda a, b: a * sgn > b * sgn  # a is on the profit side of b
     stop0, target = sig.stop, sig.target
+    if not (beyond(o[e], stop0) and (mode == "trail" or beyond(target, o[e]))):
+        return None  # gapped past a level; no trade
+    entry = o[e] * (1 + sgn * slip)
     hold = TRAIL_MAX_HOLD if mode == "trail" else MAX_HOLD
 
     last = min(e + hold, n) - 1
@@ -60,29 +70,30 @@ def simulate(sig: Signal, o, h, l, c, dates, mode: str = "target", trail=None) -
     for j in range(e, last + 1):
         stop = stop0
         if mode == "trail" and trail is not None and j - 1 >= 0 and np.isfinite(trail[j - 1]):
-            stop = max(stop0, trail[j - 1])
-        hit = "trail" if stop > stop0 else "stop"
-        if o[j] <= stop:
-            outcome, px = hit, o[j] * (1 - slip)
-        elif l[j] <= stop:
-            outcome, px = hit, stop * (1 - slip)
-        elif mode == "target" and o[j] >= target:
+            stop = min(stop0, trail[j - 1]) if short else max(stop0, trail[j - 1])
+        hit = "trail" if stop != stop0 else "stop"
+        adverse, favourable = (h[j], l[j]) if short else (l[j], h[j])
+        if not beyond(o[j], stop):
+            outcome, px = hit, o[j] * (1 - sgn * slip)
+        elif not beyond(adverse, stop):
+            outcome, px = hit, stop * (1 - sgn * slip)
+        elif mode == "target" and not beyond(target, o[j]):
             outcome, px = "target", o[j]
-        elif mode == "target" and h[j] >= target:
+        elif mode == "target" and not beyond(target, favourable):
             outcome, px = "target", target
         if outcome:
             break
     if not outcome:
         outcome = "time" if last == e + hold - 1 else "open"
-        px = c[j] * (1 - slip)
+        px = c[j] * (1 - sgn * slip)
 
     k = COST_PCT / 100
-    net = px * (1 - k) - entry * (1 + k)
+    net = (entry * (1 - k) - px * (1 + k)) if short else (px * (1 - k) - entry * (1 + k))
     return Trade(
         pattern=sig.pattern, signal_date=sig.date, entry_date=dates[e],
         entry=round(entry, 2), stop=stop0, target=target,
         exit_date=dates[j], exit=round(px, 2), outcome=outcome,
-        r=round(net / (entry - stop0), 3), ret_pct=round(net / entry * 100, 3),
+        r=round(net / (sgn * (entry - stop0)), 3), ret_pct=round(net / entry * 100, 3),
         bars=j - e + 1, exit_i=j,
     )
 

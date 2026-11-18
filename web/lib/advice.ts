@@ -17,7 +17,7 @@ export const MAX_LOSS = -20;
 export type Advice = { action: Action; reason: string };
 
 export function advise(st: StockState | undefined, avgCost: number, weightPct: number, setupsToday: Setup[]): Advice {
-  if (!st) return { action: "Hold", reason: "No price data for this stock, so no rule can run." };
+  if (!st) return { action: "Hold", reason: "No prices yet, so no rule can run. Use Fetch latest to load its history." };
   const pnlPct = ((st.close - avgCost) / avgCost) * 100;
 
   if (st.trail_stop != null && st.close < st.trail_stop)
@@ -26,7 +26,7 @@ export function advise(st: StockState | undefined, avgCost: number, weightPct: n
     return { action: "Review", reason: `Takes up ${weightPct.toFixed(1)}% of the portfolio, above the ${MAX_WEIGHT}% limit.` };
   if (pnlPct <= MAX_LOSS)
     return { action: "Review", reason: `Down ${Math.abs(pnlPct).toFixed(1)}% from your cost, past the −${Math.abs(MAX_LOSS)}% limit.` };
-  if (isLeader(st) && setupsToday.some((s) => s.symbol === st.symbol && s.trend === "up"))
+  if (isLeader(st) && setupsToday.some((s) => s.symbol === st.symbol && s.side === "long" && s.trend === "up"))
     return { action: "Add", reason: "A leader with an open uptrend setup." };
   return { action: "Hold", reason: "No rule has fired." };
 }

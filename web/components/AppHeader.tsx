@@ -8,7 +8,7 @@ import SearchBox from "./SearchBox";
 
 /** Wordmark, five nav items, search; then the status line with "Fetch latest". On every page. */
 export default function AppHeader() {
-  const instruments = getInstruments();
+  const instruments = getInstruments().map(({ symbol, name }) => ({ symbol, name }));
   return (
     <>
       <header className="hdr">

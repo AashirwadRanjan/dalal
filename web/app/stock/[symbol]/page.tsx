@@ -8,7 +8,7 @@ import WatchStar from "@/components/WatchStar";
 import { ChangeFigure, DashedNotice, ReadTag, VerdictCard } from "@/components/ui";
 import { getNewsBundle, getPatternStats, getSetups, getState, getStock, getStockSignals, getTfStatus, getTrades, type TfStatus } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
-import { PATTERN_CODE, PATTERN_LABEL, PATTERN_ORDER, dayShort, inr } from "@/lib/format";
+import { PATTERN_CODE, PATTERN_LABEL, PATTERN_ORDER, SIDE_OF, dayShort, inr } from "@/lib/format";
 import { isWatched } from "@/lib/portfolio";
 import { indicators, ladder, longTerm, plainWords, shortTerm, type Check } from "@/lib/stockview";
 
@@ -76,7 +76,7 @@ export default async function StockPage({
       </nav>
 
       {!st ? (
-        <div style={{ paddingTop: 32 }}><DashedNotice>No price data for this stock yet, so none of the rules can run.</DashedNotice></div>
+        <div style={{ paddingTop: 32 }}><DashedNotice>No prices for this stock yet. Star it (or add it to your holdings), then use Fetch latest: Dalal loads 10 years of its history and runs every rule on it.</DashedNotice></div>
       ) : tab === "overview" ? (
         <Overview symbol={symbol} candles={candles} st={st} />
       ) : tab === "technicals" ? (
@@ -101,22 +101,30 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
   const lv = short.levels;
   const signals = getStockSignals(symbol);
   const byDay = new Map<string, string[]>();
-  for (const s of signals) byDay.set(s.date, [...(byDay.get(s.date) ?? []), PATTERN_CODE[s.pattern] ?? "?"]);
-  const markers = [...byDay].map(([date, codes]) => ({ date, label: codes.join(" ") }));
+  for (const s of signals) {
+    const k = `${s.date}|${s.side}`;
+    byDay.set(k, [...(byDay.get(k) ?? []), PATTERN_CODE[s.pattern] ?? "?"]);
+  }
+  const markers = [...byDay].map(([k, codes]) => {
+    const [date, side] = k.split("|");
+    return { date, label: codes.join(" "), side: side as "long" | "short" };
+  });
   const tfs = getTfStatus(symbol);
-  const dailyLabel = short.status === "open" ? "Long setup open" : short.status === "today" ? "Long setup today" : "No setup";
+  const sideWord = short.side === "short" ? "Short" : "Long";
+  const dailyLabel = short.status === "open" ? `${sideWord} setup open` : short.status === "today" ? `${sideWord} setup today` : "No setup";
+  const isShort = short.side === "short";
 
   return (
     <>
       <section className="cols" style={{ gap: 32, paddingTop: 40 }}>
         <div className="panel panel-pad">
           <div className="card-head"><h2 className="panel-title" style={{ margin: 0 }}>Short term</h2><span className="muted" style={{ fontSize: 14 }}>Days to weeks</span></div>
-          <VerdictCard tone={short.status === "none" ? "flat" : "up"} title={short.title}>{short.text}</VerdictCard>
+          <VerdictCard tone={short.status === "none" ? "flat" : isShort ? "down" : "up"} title={short.title}>{short.text}</VerdictCard>
           {lv && (
             <div className="level-figs">
               <div><div className="fig-label">Entry</div><div className="fig-m">{inr(lv.entry)}</div></div>
-              <div><div className="fig-label">Stop, {(((lv.entry - lv.stop) / lv.entry) * 100).toFixed(1)}% below</div><div className="fig-m down">{inr(lv.stop)}</div></div>
-              <div><div className="fig-label">Target, {((lv.target - lv.entry) / (lv.entry - lv.stop)).toFixed(1)} to 1</div><div className="fig-m up">{inr(lv.target)}</div></div>
+              <div><div className="fig-label">Stop, {((Math.abs(lv.entry - lv.stop) / lv.entry) * 100).toFixed(1)}% {isShort ? "above" : "below"}</div><div className="fig-m down">{inr(lv.stop)}</div></div>
+              <div><div className="fig-label">Target, {(Math.abs(lv.target - lv.entry) / Math.abs(lv.entry - lv.stop)).toFixed(1)} to 1</div><div className="fig-m up">{inr(lv.target)}</div></div>
             </div>
           )}
           <div style={{ borderTop: "1px solid var(--line)", marginTop: 28, paddingTop: 20 }}>
@@ -138,7 +146,10 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
             </p>
           </div>
           <p style={{ margin: "20px 0 0", fontSize: 14, color: "var(--text-2)" }}>
-            Short side: no setup, long-only engine. In India, shorting a stock is possible only intraday or through futures.
+            {st.fno
+              ? "This stock has futures and options, so a short can be held overnight through them."
+              : "No futures or options on this stock: a short is possible intraday only."}{" "}
+            Every short rule lost money in the 10-year backtest.
           </p>
         </div>
 
@@ -161,7 +172,8 @@ function Overview({ symbol, candles, st }: { symbol: string; candles: NonNullabl
       <StockChart candles={candles} levels={lv} markers={markers} />
       {markers.length > 0 && (
         <p className="note" style={{ fontSize: 13, marginTop: 4 }}>
-          Arrows on the daily chart mark past setups: {PATTERN_ORDER.map((p) => `${PATTERN_CODE[p]} ${PATTERN_LABEL[p].toLowerCase()}`).join(", ")}.
+          Arrows on the daily chart mark past setups, up arrows below the bar for longs and down arrows above it for shorts:{" "}
+          {PATTERN_ORDER.map((p) => `${PATTERN_CODE[p]} ${PATTERN_LABEL[p].toLowerCase()}`).join(", ")}.
         </p>
       )}
     </>
@@ -172,8 +184,9 @@ function tfLabel(t: TfStatus | undefined, unit: string): [string, string] {
   if (!t) return ["Not calculated yet", "flat"];
   if (t.status === "insufficient") return [`Not enough history: ${t.bars} ${unit}s, needs 60`, "flat"];
   const p = t.pattern ? PATTERN_LABEL[t.pattern].toLowerCase() : "setup";
-  if (t.status === "today") return [`Long setup on the last completed ${unit} (${p})`, "ok"];
-  if (t.status === "open") return [`Long setup open (${p}, ${unit} of ${dayShort(t.signal_date)})`, "ok"];
+  const side = t.pattern && SIDE_OF[t.pattern] === "short" ? "Short" : "Long";
+  if (t.status === "today") return [`${side} setup on the last completed ${unit} (${p})`, "ok"];
+  if (t.status === "open") return [`${side} setup open (${p}, ${unit} of ${dayShort(t.signal_date)})`, "ok"];
   return ["No setup", "flat"];
 }
 

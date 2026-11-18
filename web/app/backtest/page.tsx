@@ -5,7 +5,15 @@ import RunningTotal from "@/components/RunningTotal";
 import { DashedNotice, PageHead, TablePanel } from "@/components/ui";
 import { getBenchmark, getEquity, getPatternStats, getTfStats, getTrades } from "@/lib/db";
 import { edgeSummary } from "@/lib/edge";
-import { OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
+import { OUTCOME_LABEL, PATTERN_COLOR, PATTERN_LABEL, PATTERN_PLURAL, SIDE_OF, dayMonth, dayShort, frac, signed, toneOf } from "@/lib/format";
+
+/** Pattern name with a Short tag for the mirrored short rules. */
+const Name = ({ p }: { p: string }) => (
+  <>
+    {PATTERN_LABEL[p]}
+    {SIDE_OF[p] === "short" && <span className="tag t-down" style={{ marginLeft: 8, fontSize: 12 }}>Short</span>}
+  </>
+);
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Backtest" };
@@ -54,7 +62,11 @@ export default function BacktestPage() {
 
           <section style={{ paddingTop: 56 }}>
             <h2 className="sec-title">Results by pattern</h2>
-            <p className="sec-sub">1R is the amount risked on one trade, the distance from entry to stop. Profit factor above 1 means winners outweighed losers.</p>
+            <p className="sec-sub">
+              1R is the amount risked on one trade, the distance from entry to stop. Profit factor above 1 means winners
+              outweighed losers. Short rules are the long rules mirrored; they are tested on every stock, though only F&amp;O
+              stocks can be shorted overnight.
+            </p>
             <TablePanel minWidth={860}>
               <table className="tbl">
                 <thead>
@@ -69,7 +81,7 @@ export default function BacktestPage() {
                       <td>
                         <span style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 17, fontWeight: 600 }}>
                           <span style={{ width: 12, height: 12, borderRadius: 3, background: PATTERN_COLOR[s.pattern] }} aria-hidden="true" />
-                          {PATTERN_LABEL[s.pattern]}
+                          <Name p={s.pattern} />
                         </span>
                       </td>
                       <td className="n">{s.trades.toLocaleString("en-IN")}</td>
@@ -93,14 +105,14 @@ export default function BacktestPage() {
             <div className="sec-head">
               <h2 className="sec-title">Running total, in R</h2>
               <div className="chart-key" aria-hidden="true">
-                {e.stats.map((s) => (
+                {e.stats.filter((s) => SIDE_OF[s.pattern] === "long").map((s) => (
                   <span key={s.pattern}><i style={{ background: PATTERN_COLOR[s.pattern] }} />{PATTERN_LABEL[s.pattern]}</span>
                 ))}
               </div>
             </div>
             <div style={{ height: 20 }} />
             <RunningTotal points={getEquity()} />
-            <div className="note" style={{ fontSize: 13 }}>Every closed trade, added on its exit day. The totals match the table above.</div>
+            <div className="note" style={{ fontSize: 13 }}>Long patterns: every closed trade, added on its exit day. The totals match the table above. Short totals are in the table; on one chart they would flatten the long lines.</div>
           </section>
 
           <OutOfSample stats={e.stats} />
@@ -159,7 +171,7 @@ export default function BacktestPage() {
                   {trades.map((t) => (
                     <tr key={t.symbol + t.pattern + t.entry_date}>
                       <td><Link className="sym" href={`/stock/${encodeURIComponent(t.symbol)}`} style={{ fontSize: 15 }}>{t.symbol}</Link></td>
-                      <td style={{ fontSize: 15 }}>{PATTERN_LABEL[t.pattern]}</td>
+                      <td style={{ fontSize: 15 }}><Name p={t.pattern} /></td>
                       <td className="mono" style={{ fontSize: 15 }}>{dayMonth(t.entry_date)}</td>
                       <td className="mono" style={{ fontSize: 15 }}>{dayMonth(t.exit_date)}</td>
                       <td className={toneOf(t.r)} style={{ fontSize: 15 }}>{OUTCOME_LABEL[t.outcome]}</td>
@@ -194,7 +206,7 @@ function WeeklyMonthly() {
     <section style={{ paddingTop: 56 }}>
       <h2 className="sec-title">Weekly and monthly bars</h2>
       <p className="sec-sub">
-        The same three patterns on completed weekly and monthly bars, with the original exits, costs and slippage, judged
+        The same patterns on completed weekly and monthly bars, with the original exits, costs and slippage, judged
         the same way: training up to the end of 2025, then “later”. Trades here can last up to 20 weeks or 20 months, so
         whole-period results lean on the market’s rise; the later column is the one to read.
       </p>
@@ -217,7 +229,7 @@ function WeeklyMonthly() {
                   <tbody>
                     {traded.map((s) => (
                       <tr key={s.pattern}>
-                        <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                        <td style={{ fontWeight: 600 }}><Name p={s.pattern} /></td>
                         <td className="n">{s.trades.toLocaleString("en-IN")}</td>
                         <td className={`n ${toneOf(s.avg_r)}`}>{signed(s.avg_r, 3)}</td>
                         <td className={`n ${toneOf(s.walk_forward?.train.avg_r)}`}>{signed(s.walk_forward?.train.avg_r, 3)}</td>
@@ -244,7 +256,7 @@ function WeeklyMonthly() {
 
 const VARIANT_NAME: Record<string, string> = {
   base: "Original rule",
-  regime: "Only when Nifty is above its 200-day average",
+  regime: "Only when Nifty is above its 200-day average (below, for shorts)",
   trail: "Trailing-stop exit instead of a fixed target",
   regime_trail: "Both: market filter and trailing stop",
 };
@@ -278,7 +290,7 @@ function Variants({ stats, trailHold }: { stats: ReturnType<typeof edgeSummary>[
                 return (
                   <tr key={s.pattern + v}>
                     <td>
-                      <span style={{ fontWeight: v === "base" ? 600 : 400 }}>{v === "base" ? PATTERN_LABEL[s.pattern] : ""}</span>
+                      <span style={{ fontWeight: v === "base" ? 600 : 400 }}>{v === "base" ? <Name p={s.pattern} /> : ""}</span>
                       <span className="nm" style={{ fontSize: 14 }}>{VARIANT_NAME[v]}</span>
                     </td>
                     <td className="n">{(x.trades ?? 0).toLocaleString("en-IN")}</td>
@@ -325,7 +337,7 @@ function OutOfSample({ stats }: { stats: ReturnType<typeof edgeSummary>["stats"]
               const w = s.walk_forward!;
               return (
                 <tr key={s.pattern}>
-                  <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                  <td style={{ fontWeight: 600 }}><Name p={s.pattern} /></td>
                   <td className="n">{w.train.trades}</td>
                   <td className={`n ${toneOf(w.train.avg_r)}`}>{signed(w.train.avg_r, 3)}</td>
                   <td>{w.selected ? <span className="tag t-up">Passed</span> : <span className="tag t-flat">Did not pass</span>}</td>
@@ -356,7 +368,7 @@ function ByYear({ stats }: { stats: ReturnType<typeof edgeSummary>["stats"] }) {
           <tbody>
             {stats.map((s) => (
               <tr key={s.pattern}>
-                <td style={{ fontWeight: 600 }}>{PATTERN_LABEL[s.pattern]}</td>
+                <td style={{ fontWeight: 600, whiteSpace: "nowrap" }}><Name p={s.pattern} /></td>
                 {years.map((y) => {
                   const b = s.by_year?.[y];
                   return (

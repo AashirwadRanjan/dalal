@@ -27,12 +27,12 @@ export default function WatchlistSection() {
               <tbody>
                 {items.map((w) => {
                   const st = states.get(w.symbol);
-                  const fired = setups.filter((s) => s.symbol === w.symbol).map((s) => PATTERN_LABEL[s.pattern]);
+                  const fired = setups.filter((s) => s.symbol === w.symbol).map((s) => `${s.side === "short" ? "Short" : "Long"}: ${PATTERN_LABEL[s.pattern].toLowerCase()}`);
                   return (
                     <tr key={w.symbol}>
                       <td>
                         <Link className="sym" href={`/stock/${encodeURIComponent(w.symbol)}`}>{w.symbol}</Link>
-                        <span className="nm">{st?.name ?? "No price data"}</span>
+                        <span className="nm">{st?.name ?? "No prices yet: use Fetch latest"}</span>
                       </td>
                       <td className="n">{inr(st?.close)}</td>
                       <td className="r"><ChangeFigure value={st?.chg_1d != null ? st.chg_1d * 100 : null} /></td>

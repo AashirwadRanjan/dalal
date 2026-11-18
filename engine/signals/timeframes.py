@@ -28,7 +28,7 @@ def resample(df: pd.DataFrame, tf: str) -> pd.DataFrame:
 def period_complete(last_daily: str, tf: str) -> bool:
     d = pd.Timestamp(last_daily)
     if tf == "W":
-        return d.dayofweek == 4  # Friday
+        return d.day_of_week == 4  # Friday
     month_end = d + pd.offsets.BMonthEnd(0)
     return d.normalize() == month_end.normalize()
 
@@ -39,8 +39,9 @@ def completed(bars: pd.DataFrame, tf: str, last_daily: str) -> pd.DataFrame:
     return bars
 
 
-def run(prices: pd.DataFrame):
-    """prices: all daily rows (symbol, date, OHLCV). Returns (status_rows, stats_rows, summary)."""
+def run(prices: pd.DataFrame, universe: set[str] | None = None):
+    """prices: all daily rows (symbol, date, OHLCV). Stats count only stocks in `universe` (all if None).
+    Returns (status_rows, stats_rows, summary)."""
     status_rows, stats_rows, notes = [], [], []
     last_daily = prices["date"].max()
     for tf, name in TIMEFRAMES.items():
@@ -55,7 +56,8 @@ def run(prices: pd.DataFrame):
             sigs = patterns.detect(bars)
             arr = [bars[k].to_numpy(float) for k in ("open", "high", "low", "close")]
             trades = backtest.run_symbol(sigs, *arr, bars.index.to_list())
-            all_trades += trades
+            if universe is None or sym in universe:
+                all_trades += trades
             last_bar = bars.index[-1]
             fresh = [s for s in sigs if s.date == last_bar]
             open_t = next((t for t in reversed(trades) if t.outcome == "open"), None)

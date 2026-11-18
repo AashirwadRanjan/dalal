@@ -46,6 +46,9 @@ def benchmark(prices: pd.DataFrame) -> list[tuple]:
 
 
 def run(conn) -> str:
+    # Backtest stats, the benchmark and screens use the Nifty 500 only; stocks you added outside it still get
+    # setups, state and trades on their own pages.
+    universe = {r[0] for r in conn.execute("SELECT symbol FROM instruments WHERE in_index = 1")}
     prices = pd.read_sql(
         "SELECT symbol, date, open, high, low, close, volume FROM prices_daily ORDER BY symbol, date",
         conn,
@@ -53,6 +56,8 @@ def run(conn) -> str:
     prices["volume"] = prices["volume"].fillna(0)
 
     regime_up = market_regime(conn)
+    # Market filter, per side: longs only while the Nifty 50 is above its 200-day average, shorts only below
+    in_regime = lambda s: regime_up.get(s.date) is (s.side == "long")
     sig_rows, trade_rows, latest, illiquid = [], [], [], 0
     variant_trades: dict[str, list] = {v: [] for v in VARIANTS}
     for sym, df in prices.groupby("symbol", sort=False):
@@ -71,24 +76,27 @@ def run(conn) -> str:
         if not sigs:
             continue
         trend_at = ind["trend"].to_numpy()
-        sig_rows += [(sym, s.date, s.pattern, trend_at[s.i], s.entry, s.stop, s.target, s.detail) for s in sigs]
+        sig_rows += [(sym, s.date, s.pattern, s.side, trend_at[s.i], s.entry, s.stop, s.target, s.detail) for s in sigs]
         arr = [df[k].to_numpy(float) for k in ("open", "high", "low", "close")]
         dates = df.index.to_list()
-        trail = ind["trail_stop"].to_numpy()
-        up_sigs = [s for s in sigs if regime_up.get(s.date, False)]
-        runs = {
-            "base": backtest.run_symbol(sigs, *arr, dates),
-            "regime": backtest.run_symbol(up_sigs, *arr, dates),
-            "trail": backtest.run_symbol(sigs, *arr, dates, mode="trail", trail=trail),
-            "regime_trail": backtest.run_symbol(up_sigs, *arr, dates, mode="trail", trail=trail),
-        }
-        sig_i = {s.date: s.i for s in sigs}
+        trails = {"long": ind["trail_stop"].to_numpy(), "short": ind["trail_stop_short"].to_numpy()}
+        runs = {v: [] for v in VARIANTS}
+        for side in ("long", "short"):
+            mine = [s for s in sigs if s.side == side]
+            reg = [s for s in mine if in_regime(s)]
+            tr = trails[side]
+            runs["base"] += backtest.run_symbol(mine, *arr, dates)
+            runs["regime"] += backtest.run_symbol(reg, *arr, dates)
+            runs["trail"] += backtest.run_symbol(mine, *arr, dates, mode="trail", trail=tr)
+            runs["regime_trail"] += backtest.run_symbol(reg, *arr, dates, mode="trail", trail=tr)
+        sig_i = {(s.date, s.pattern): s.i for s in sigs}
         for v, trades in runs.items():
             for t in trades:
-                t.trend = trend_at[sig_i[t.signal_date]]
-            variant_trades[v] += trades
+                t.trend = trend_at[sig_i[(t.signal_date, t.pattern)]]
+            if sym in universe:
+                variant_trades[v] += trades
         trade_rows += [
-            (sym, t.pattern, t.signal_date, t.trend, t.entry_date, t.entry, t.stop, t.target,
+            (sym, t.pattern, t.side, t.signal_date, t.trend, t.entry_date, t.entry, t.stop, t.target,
              t.exit_date, t.exit, t.outcome, t.r, t.ret_pct, t.bars)
             for t in runs["base"]
         ]
@@ -111,21 +119,27 @@ def run(conn) -> str:
         stat_rows.append((p, json.dumps(st)))
 
     snap = pd.DataFrame(latest)
-    snap["rs_pct"] = snap["ret_6m"].rank(pct=True) * 100
+    in_u = snap["symbol"].isin(universe)
+    snap["rs_pct"] = snap["ret_6m"].where(in_u).rank(pct=True) * 100  # rank within the Nifty 500
+    if (~in_u).any():  # added stocks: percentile they would have among the Nifty 500
+        ref = np.sort(snap.loc[in_u, "ret_6m"].dropna().to_numpy())
+        if ref.size:
+            snap.loc[~in_u, "rs_pct"] = [np.searchsorted(ref, x, side="right") / ref.size * 100 if np.isfinite(x) else np.nan
+                                         for x in snap.loc[~in_u, "ret_6m"]]
     snap["breakdown"] = snap["breakdown"].astype(bool).astype(int)
     state_rows = [(r["symbol"], *(_clean(r[c]) for c in STATE_COLS)) for _, r in snap.iterrows()]
 
-    tf_status, tf_stats, tf_note = timeframes.run(prices)
-    bench = benchmark(prices)
+    tf_status, tf_stats, tf_note = timeframes.run(prices, universe)
+    bench = benchmark(prices[prices["symbol"].isin(universe)])
 
     with conn:  # one transaction: the dashboard never sees a half-rebuilt state
         for t in ("signals", "trades", "pattern_stats", "stock_state", "tf_status", "tf_stats", "benchmark_daily"):
             conn.execute(f"DELETE FROM {t}")
-        conn.executemany("INSERT INTO signals (symbol, date, pattern, trend, entry, stop, target, detail) "
-                         "VALUES (?,?,?,?,?,?,?,?)", sig_rows)
+        conn.executemany("INSERT INTO signals (symbol, date, pattern, side, trend, entry, stop, target, detail) "
+                         "VALUES (?,?,?,?,?,?,?,?,?)", sig_rows)
         conn.executemany(
-            "INSERT INTO trades (symbol, pattern, signal_date, trend, entry_date, entry, stop, target, "
-            "exit_date, exit, outcome, r, ret_pct, bars) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO trades (symbol, pattern, side, signal_date, trend, entry_date, entry, stop, target, "
+            "exit_date, exit, outcome, r, ret_pct, bars) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             trade_rows,
         )
         conn.executemany("INSERT INTO pattern_stats (pattern, stats) VALUES (?,?)", stat_rows)

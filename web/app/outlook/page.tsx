@@ -47,6 +47,13 @@ export default async function OutlookPage({ searchParams }: { searchParams: Prom
       blurb: "Stocks that closed below their prior 20-day low on at least 1.5× usual volume on the latest day.",
       rows: g.breakdowns.map((s) => row(s, s.low20 != null ? `20-day low ${inr(s.low20)}` : "20-day low")),
     },
+    {
+      id: "shorts", label: "Short setups", count: g.shortSetups.length, extraLabel: "Setup",
+      blurb:
+        "Short setups on stocks with futures and options, the only way to hold a short overnight in India. In the 10-year " +
+        "backtest every short rule lost money (see Backtest), so treat these as stocks to avoid, not as trades.",
+      rows: g.shortSetups.map(({ setup, state }) => row(state, PATTERN_LABEL[setup.pattern])),
+    },
   ];
 
   return (

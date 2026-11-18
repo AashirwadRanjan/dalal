@@ -91,6 +91,7 @@ export default function Today() {
                       <td>
                         <Link className="sym" href={`/stock/${encodeURIComponent(s.symbol)}`} style={{ fontSize: 18 }}>{s.symbol}</Link>
                         <span className="nm" style={{ fontSize: 14 }}>
+                          {s.side === "short" ? "Short: " : "Long: "}
                           {PATTERN_LABEL[s.pattern]}
                           {s.volx ? `, ${s.volx.toFixed(1)}× average volume` : ""}
                         </span>
@@ -98,7 +99,7 @@ export default function Today() {
                       <td className="n">{inr(s.entry)}</td>
                       <td className="n down">{inr(s.stop)}</td>
                       <td className="n up">{inr(s.target)}</td>
-                      <td className="n">{((s.target - s.entry) / (s.entry - s.stop)).toFixed(1)} to 1</td>
+                      <td className="n">{(Math.abs(s.target - s.entry) / Math.abs(s.entry - s.stop)).toFixed(1)} to 1</td>
                     </tr>
                   ))}
                 </tbody>

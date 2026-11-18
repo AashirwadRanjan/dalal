@@ -3,7 +3,9 @@
 Rules every detector follows:
 - Uses only bars up to and including the signal bar (no lookahead), so the backtest is honest.
   Swing highs/lows count only once confirmed, PIVOT_N bars after the fact.
-- Long only: cash-market delivery in India can't be shorted overnight.
+- Long setups and their mirror-image short setups. A positional short in India needs stock futures or puts
+  (F&O stocks only); cash shares can be shorted intraday only. The engine tests shorts on every stock, and the
+  web app marks which ones are actually shortable.
 - `entry` is the signal bar's close (a reference). The backtest enters at the next bar's open.
 """
 from dataclasses import dataclass
@@ -21,7 +23,10 @@ REWARD_R = 2.0           # default target = entry + 2 x risk
 MIN_RR = 1.5             # support bounce: skip if resistance is closer than 1.5 x risk
 MIN_HISTORY = 60
 
-PATTERNS = ("breakout", "volume_spike", "support_bounce")
+LONG_PATTERNS = ("breakout", "volume_spike", "support_bounce")
+SHORT_PATTERNS = ("breakdown", "selling_spike", "resistance_reject")
+PATTERNS = LONG_PATTERNS + SHORT_PATTERNS
+SIDE = {**{p: "long" for p in LONG_PATTERNS}, **{p: "short" for p in SHORT_PATTERNS}}
 
 
 @dataclass
@@ -33,6 +38,10 @@ class Signal:
     stop: float
     target: float
     detail: str
+
+    @property
+    def side(self) -> str:
+        return SIDE[self.pattern]
 
 
 def _pivots(x: np.ndarray, kind: str) -> np.ndarray:
@@ -57,6 +66,7 @@ def detect(df: pd.DataFrame) -> list[Signal]:
     tr = np.nanmax(np.vstack([h - l, np.abs(h - prev_c), np.abs(l - prev_c)]), axis=0)
     atr = pd.Series(tr).rolling(ATR_N).mean().to_numpy()
     hh = pd.Series(h).shift(1).rolling(LOOKBACK).max().to_numpy()       # prior 20-bar high
+    ll = pd.Series(l).shift(1).rolling(LOOKBACK).min().to_numpy()       # prior 20-bar low
     avg_v = pd.Series(v).shift(1).rolling(LOOKBACK).mean().to_numpy()
     volx = np.divide(v, avg_v, out=np.full(n, np.nan), where=avg_v > 0)
 
@@ -102,4 +112,36 @@ def detect(df: pd.DataFrame) -> list[Signal]:
                     add(t, "support_bounce", stop, target,
                         f"Bounced off support {sup:.2f}"
                         + (f", resistance {target:.2f}" if res.size else ""))
+
+        # ---- short side: the same three rules, mirrored ----
+
+        # 4. Breakdown: first close below the prior 20-day low, on volume
+        if c[t] < ll[t] and c[t - 1] >= ll[t - 1] and volx[t] >= VOL_MULT_BREAKOUT:
+            stop = ll[t] + a  # back inside the range = failed breakdown
+            add(t, "breakdown", stop, c[t] - REWARD_R * (stop - c[t]),
+                f"Closed below 20-day low {ll[t]:.2f} on {volx[t]:.1f}x volume")
+
+        # 5. Selling spike: heavy selling, closes near the low
+        if volx[t] >= VOL_MULT_SPIKE and c[t] < o[t] and rng > 0 and (h[t] - c[t]) / rng >= 2 / 3:
+            stop = max(h[t], c[t] + a)
+            add(t, "selling_spike", stop, c[t] - REWARD_R * (stop - c[t]),
+                f"{volx[t]:.1f}x average volume, closed in bottom third of range")
+
+        # 6. Resistance rejection: tags a confirmed swing high and closes bearish below it
+        hi_idx = piv_hi[(piv_hi >= t - SUPPORT_WINDOW) & (piv_hi <= t - PIVOT_N)]
+        resist = h[hi_idx]
+        resist = resist[resist > c[t]]
+        if resist.size and c[t] < o[t]:
+            res_ = resist.min()  # nearest resistance above price
+            if h[t] >= res_ - 0.5 * a and h[t - 1] < res_ - 0.5 * a:
+                stop = res_ + 0.5 * a
+                risk = stop - c[t]
+                lo_idx = piv_lo[(piv_lo >= t - SUPPORT_WINDOW) & (piv_lo <= t - PIVOT_N)]
+                sup_ = l[lo_idx]
+                sup_ = sup_[sup_ < c[t]]
+                target = sup_.max() if sup_.size else c[t] - REWARD_R * risk
+                if risk > 0 and (c[t] - target) / risk >= MIN_RR:
+                    add(t, "resistance_reject", stop, target,
+                        f"Turned down at resistance {res_:.2f}"
+                        + (f", support {target:.2f}" if sup_.size else ""))
     return out

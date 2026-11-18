@@ -26,6 +26,8 @@ def indicators(df: pd.DataFrame) -> pd.DataFrame:
     out["atr"] = tr.rolling(22).mean()
     # Chandelier trailing stop: highest high of the last 22 bars minus 3 ATR
     out["trail_stop"] = h.rolling(22).max() - 3 * out["atr"]
+    # Short-side mirror: lowest low of the last 22 bars plus 3 ATR (used by the short backtest)
+    out["trail_stop_short"] = l.rolling(22).min() + 3 * out["atr"]
 
     up = (c > out["dma50"]) & (out["dma50"] > out["dma200"]) & (slope > 0)
     down = (c < out["dma50"]) & (out["dma50"] < out["dma200"]) & (slope < 0)

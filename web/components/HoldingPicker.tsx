@@ -4,7 +4,7 @@ import { useActionState, useEffect, useId, useMemo, useRef, useState } from "rea
 import { addHolding, type FormState } from "@/app/portfolio/actions";
 import { matchStocks } from "./SearchBox";
 
-type Item = { symbol: string; name: string };
+type Item = { symbol: string; name: string; priced?: number };
 type Held = Record<string, { qty: number; avg: number }>;
 
 /**
@@ -93,7 +93,7 @@ export default function HoldingPicker({ items, held }: { items: Item[]; held: He
                     >
                       <span className="nm" style={{ color: "var(--text)", fontSize: 15 }}>{m.name}</span>
                       <span className="sym mono" style={{ fontSize: 13, color: "var(--text-2)" }}>
-                        {m.symbol}{held[m.symbol] ? " · held" : ""}
+                        {m.symbol}{held[m.symbol] ? " · held" : ""}{m.priced === 0 ? " · prices load on next fetch" : ""}
                       </span>
                     </li>
                   ))

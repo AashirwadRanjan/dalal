@@ -23,16 +23,22 @@ export const atrFrom50 = (s: StockState) =>
 
 export function outlookGroups(states: StockState[], setups: Setup[]) {
   const latest = states.reduce((a, s) => (s.date > a ? s.date : a), "");
-  const current = states.filter((s) => s.date === latest); // skip stale stocks with no bar today
+  // Nifty 500 only (stocks you added outside it still show on their own pages); skip stale stocks with no bar today
+  const current = states.filter((s) => s.date === latest && s.in_index !== 0);
   const byRs = (a: StockState, b: StockState) => (b.rs_pct ?? 0) - (a.rs_pct ?? 0);
   const leaders = current.filter(isLeader).sort(byRs);
   const pullbacks = leaders.filter(isPullback);
   const bySym = new Map(current.map((s) => [s.symbol, s]));
   const uptrendSetups = setups
-    .filter((x) => x.trend === "up")
+    .filter((x) => x.trend === "up" && x.side === "long")
     .map((x) => ({ setup: x, state: bySym.get(x.symbol) }))
     .filter((x): x is { setup: Setup; state: StockState } => !!x.state);
   const weak = current.filter(isWeak).sort((a, b) => (a.rs_pct ?? 0) - (b.rs_pct ?? 0));
   const breakdowns = current.filter((s) => s.breakdown).sort((a, b) => (b.volx ?? 0) - (a.volx ?? 0));
-  return { date: latest, universe: current.length, leaders, pullbacks, uptrendSetups, weak, breakdowns };
+  // Short candidates: short setups on F&O stocks (the only ones a positional short is possible on)
+  const shortSetups = setups
+    .filter((x) => x.side === "short" && x.fno)
+    .map((x) => ({ setup: x, state: bySym.get(x.symbol) }))
+    .filter((x): x is { setup: Setup; state: StockState } => !!x.state);
+  return { date: latest, universe: current.length, leaders, pullbacks, uptrendSetups, shortSetups, weak, breakdowns };
 }

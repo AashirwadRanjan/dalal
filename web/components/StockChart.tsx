@@ -51,7 +51,7 @@ const sma = (bars: Bar[], n: number) =>
 
 export default function StockChart({
   candles, levels, markers = NO_MARKERS,
-}: { candles: Candle[]; levels?: Levels; markers?: { date: string; label: string }[] }) {
+}: { candles: Candle[]; levels?: Levels; markers?: { date: string; label: string; side?: "long" | "short" }[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [frame, setFrame] = useState<Frame>("D");
   const cfg = FRAMES.find((f) => f.id === frame)!;
@@ -107,7 +107,14 @@ export default function StockChart({
       pl(levels.stop, v("--down"), "Stop");
     }
     if (frame === "D" && markers.length) {
-      createSeriesMarkers(price, markers.map((m) => ({ time: m.date, position: "belowBar" as const, shape: "arrowUp" as const, color: v("--amber"), text: m.label })));
+      createSeriesMarkers(
+        price,
+        markers.map((m) =>
+          m.side === "short"
+            ? { time: m.date, position: "aboveBar" as const, shape: "arrowDown" as const, color: v("--down"), text: m.label }
+            : { time: m.date, position: "belowBar" as const, shape: "arrowUp" as const, color: v("--amber"), text: m.label }
+        )
+      );
     }
     chart.timeScale().setVisibleLogicalRange({ from: Math.max(0, bars.length - cfg.show), to: bars.length + 2 });
     return () => chart.remove();

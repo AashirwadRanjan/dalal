@@ -37,7 +37,7 @@ def build(conn) -> dict:
     stocks = _rows(conn, """
         SELECT s.symbol, i.name, i.sector, s.date, s.close, 100 * s.chg_1d AS chg, s.trend, s.volx,
                s.close > s.dma50 AS above50, s.close > s.dma200 AS above200, s.breakdown
-        FROM stock_state s JOIN instruments i USING (symbol) WHERE s.chg_1d IS NOT NULL""")
+        FROM stock_state s JOIN instruments i USING (symbol) WHERE s.chg_1d IS NOT NULL AND i.in_index = 1""")
     if not stocks:
         raise RuntimeError("No stock_state rows. Run the signals step first.")
     date = max(s["date"] for s in stocks)
@@ -70,8 +70,8 @@ def build(conn) -> dict:
 
     india, glob = _series(conn, "india"), _series(conn, "global")
     flows = _rows(conn, "SELECT date, fii_net, dii_net FROM fii_dii_daily ORDER BY date DESC LIMIT 5")
-    setups = _rows(conn, """SELECT pattern, COUNT(*) n FROM signals WHERE date = ? GROUP BY pattern
-        ORDER BY CASE pattern WHEN 'breakout' THEN 0 WHEN 'volume_spike' THEN 1 ELSE 2 END""", date)
+    setups = _rows(conn, """SELECT pattern, side, COUNT(*) n FROM signals JOIN instruments i USING (symbol)
+        WHERE date = ? AND i.in_index = 1 GROUP BY pattern, side ORDER BY side, pattern""", date)
 
     data = {
         "date": date,
@@ -85,6 +85,7 @@ def build(conn) -> dict:
         "losers": pick(stocks, "chg", reverse=False),
         "volume": pick([s for s in stocks if s["volx"]], "volx"),
         "setups": {r["pattern"]: r["n"] for r in setups},
+        "setups_by_side": {side: sum(r["n"] for r in setups if r["side"] == side) for side in ("long", "short")},
         "breakdowns": sum(bool(s["breakdown"]) for s in stocks),
     }
     data["headlines"] = headlines(data)
@@ -270,9 +271,9 @@ def headlines(d: dict) -> list[dict]:
         f"{b['pct_above_200dma']:.0f}% trade above their 200-day average.",
         1 if b["pct_above_200dma"] >= 60 else -1 if b["pct_above_200dma"] <= 40 else 0)
 
-    n_setups = sum(d["setups"].values())
-    if n_setups or d["breakdowns"]:
-        say(f"{n_setups} bullish pattern setups and {d['breakdowns']} breakdowns on today's close.")
+    sides = d.get("setups_by_side") or {"long": sum(d["setups"].values()), "short": 0}
+    if sides["long"] or sides["short"]:
+        say(f"{sides['long']} long setups and {sides['short']} short setups on today's close.")
     return out
 
 

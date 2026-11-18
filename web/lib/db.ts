@@ -116,6 +116,11 @@ export type Setup = {
   sector: string;
   date: string;
   pattern: string;
+  side: "long" | "short";
+  /** 1 = stock has futures and options, so a positional short is possible */
+  fno?: number;
+  /** 1 = in the Nifty 500 */
+  in_index?: number;
   trend: string | null;
   volx?: number | null;
   rs_pct?: number | null;
@@ -128,6 +133,7 @@ export type Setup = {
 export type TradeRow = {
   symbol: string;
   pattern: string;
+  side: "long" | "short";
   signal_date: string;
   entry_date: string;
   entry: number;
@@ -135,7 +141,7 @@ export type TradeRow = {
   target: number;
   exit_date: string;
   exit: number;
-  outcome: "target" | "stop" | "time" | "open";
+  outcome: "target" | "stop" | "trail" | "time" | "open";
   r: number;
   ret_pct: number;
   bars: number;
@@ -163,7 +169,7 @@ export function getSetups(): Setup[] {
       if (!hasTable(db, "signals")) return [];
       return db
         .prepare(
-          `SELECT s.symbol, i.name, i.sector, s.date, s.pattern, s.trend, st.volx, st.rs_pct,
+          `SELECT s.symbol, i.name, i.sector, s.date, s.pattern, s.side, i.fno, i.in_index, s.trend, st.volx, st.rs_pct,
                   s.entry, s.stop, s.target, s.detail
            FROM signals s JOIN instruments i ON i.symbol = s.symbol
            LEFT JOIN stock_state st ON st.symbol = s.symbol AND st.date = s.date
@@ -179,11 +185,13 @@ export function getTrades(opts: { symbol?: string; limit?: number } = {}): Trade
   return (
     withDb((db) => {
       if (!hasTable(db, "trades")) return [];
-      const where = opts.symbol ? "WHERE symbol = ?" : "WHERE outcome != 'open'";
+      const where = opts.symbol
+        ? "WHERE symbol = ?"
+        : "WHERE outcome != 'open' AND symbol IN (SELECT symbol FROM instruments WHERE in_index = 1)";
       const args: (string | number)[] = opts.symbol ? [opts.symbol] : [];
       return db
         .prepare(
-          `SELECT symbol, pattern, signal_date, entry_date, entry, stop, target, exit_date, exit, outcome, r, ret_pct, bars
+          `SELECT symbol, pattern, side, signal_date, entry_date, entry, stop, target, exit_date, exit, outcome, r, ret_pct, bars
            FROM trades ${where} ORDER BY ${opts.symbol ? "signal_date" : "exit_date"} DESC, symbol LIMIT ?`
         )
         .all(...args, opts.limit ?? 100) as TradeRow[];
@@ -198,8 +206,8 @@ export function getEquity(): EquityPoint[] {
       if (!hasTable(db, "trades")) return [];
       return db
         .prepare(
-          `SELECT pattern, exit_date AS date, SUM(r) AS r FROM trades
-           WHERE outcome != 'open' GROUP BY pattern, exit_date ORDER BY exit_date`
+          `SELECT pattern, exit_date AS date, SUM(r) AS r FROM trades JOIN instruments i USING (symbol)
+           WHERE outcome != 'open' AND i.in_index = 1 GROUP BY pattern, exit_date ORDER BY exit_date`
         )
         .all() as EquityPoint[];
     }) ?? []
@@ -212,7 +220,7 @@ export function getStockSignals(symbol: string): Setup[] {
       if (!hasTable(db, "signals")) return [];
       return db
         .prepare(
-          `SELECT s.symbol, '' AS name, '' AS sector, s.date, s.pattern, s.trend, s.entry, s.stop, s.target, s.detail
+          `SELECT s.symbol, '' AS name, '' AS sector, s.date, s.pattern, s.side, s.trend, s.entry, s.stop, s.target, s.detail
            FROM signals s WHERE s.symbol = ? ORDER BY s.date`
         )
         .all(symbol) as Setup[];
@@ -243,6 +251,7 @@ export type Brief = {
   losers: Mover[];
   volume: Mover[];
   setups: Record<string, number>;
+  setups_by_side?: { long: number; short: number };
   breakdowns: number;
 };
 
@@ -296,6 +305,8 @@ export type StockState = {
   bb_low: number | null;
   support: number | null;
   resistance: number | null;
+  in_index?: number;
+  fno?: number;
 };
 
 export function getStates(): StockState[] {
@@ -303,24 +314,29 @@ export function getStates(): StockState[] {
     withDb((db) =>
       hasTable(db, "stock_state")
         ? (db
-            .prepare("SELECT s.*, i.name, i.sector FROM stock_state s JOIN instruments i USING (symbol)")
+            .prepare("SELECT s.*, i.name, i.sector, i.in_index, i.fno FROM stock_state s JOIN instruments i USING (symbol)")
             .all() as StockState[])
         : []
     ) ?? []
   );
 }
 
-export function getInstruments(): { symbol: string; name: string }[] {
-  // Only instruments with prices: Yahoo has nothing for a few (e.g. BAGMANE, DUMMYHEG), so they can't be analysed.
+export type Instrument = { symbol: string; name: string; priced: number; in_index: number };
+
+/** Every NSE equity. `priced` = has price history; the rest get it once you hold or watch them and fetch. */
+export function getInstruments(): Instrument[] {
   return (
-    withDb((db) =>
-      db
+    withDb((db) => {
+      const cols = (db.prepare("PRAGMA table_info(instruments)").all() as { name: string }[]).map((c) => c.name);
+      const idx = cols.includes("in_index") ? "i.in_index" : "1";
+      return db
         .prepare(
-          `SELECT symbol, name FROM instruments i
-           WHERE EXISTS (SELECT 1 FROM prices_daily p WHERE p.symbol = i.symbol) ORDER BY symbol`
+          `SELECT symbol, name, ${idx} AS in_index,
+                  EXISTS (SELECT 1 FROM prices_daily p WHERE p.symbol = i.symbol) AS priced
+           FROM instruments i ORDER BY symbol`
         )
-        .all() as { symbol: string; name: string }[]
-    ) ?? []
+        .all() as Instrument[];
+    }) ?? []
   );
 }
 
@@ -379,7 +395,7 @@ export function getState(symbol: string): StockState | null {
   return (
     withDb((db) =>
       hasTable(db, "stock_state")
-        ? ((db.prepare("SELECT s.*, i.name, i.sector FROM stock_state s JOIN instruments i USING (symbol) WHERE s.symbol = ?").get(symbol) as StockState | undefined) ?? null)
+        ? ((db.prepare("SELECT s.*, i.name, i.sector, i.in_index, i.fno FROM stock_state s JOIN instruments i USING (symbol) WHERE s.symbol = ?").get(symbol) as StockState | undefined) ?? null)
         : null
     ) ?? null
   );

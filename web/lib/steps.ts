@@ -5,6 +5,7 @@ export const STEP_INFO: Record<string, { name: string; source: string }> = {
   market_series: { name: "Indices and world", source: "Yahoo Finance" },
   fii_dii: { name: "Fund flows", source: "NSE website" },
   signals: { name: "Setups", source: "Computed from prices" },
+  live: { name: "Live record", source: "Today's setups, followed forward" },
   summary: { name: "Daily brief", source: "Computed from the other steps" },
 };
 export const STEP_ORDER = Object.keys(STEP_INFO);

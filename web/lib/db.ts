@@ -464,3 +464,35 @@ export type BenchPoint = { date: string; idx: number; stocks: number };
 export function getBenchmark(): BenchPoint[] {
   return withDb((db) => (hasTable(db, "benchmark_daily") ? (db.prepare("SELECT date, idx, stocks FROM benchmark_daily ORDER BY date").all() as BenchPoint[]) : [])) ?? [];
 }
+
+// ---- Live record (engine/signals/live.py): setups logged the day they fired, followed forward ----
+
+export type LiveRow = {
+  id: number; symbol: string; name: string | null; tf: "D" | "W"; pattern: string; side: "long" | "short";
+  signal_date: string; logged_on: string; ref_entry: number; stop: number; target: number;
+  status: "waiting" | "skipped" | "open" | "target" | "stop" | "time";
+  entry_date: string | null; entry: number | null; exit_date: string | null; exit: number | null;
+  r: number | null; best_r: number | null; last_date: string | null; last_close: number | null; in_index: number | null;
+};
+export type LiveEvent = { date: string; event: string; symbol: string; tf: "D" | "W"; pattern: string; side: "long" | "short"; r: number | null };
+
+export function getLive(): { rows: LiveRow[]; events: LiveEvent[] } {
+  return (
+    withDb((db) => {
+      if (!hasTable(db, "setup_log")) return { rows: [], events: [] };
+      const rows = db
+        .prepare(
+          `SELECT l.*, i.name, i.in_index FROM setup_log l LEFT JOIN instruments i USING (symbol)
+           ORDER BY l.signal_date DESC, l.symbol`
+        )
+        .all() as LiveRow[];
+      const events = db
+        .prepare(
+          `SELECT e.date, e.event, l.symbol, l.tf, l.pattern, l.side, l.r FROM setup_events e JOIN setup_log l ON l.id = e.log_id
+           WHERE e.event != 'new' ORDER BY e.date DESC, l.symbol LIMIT 60`
+        )
+        .all() as LiveEvent[];
+      return { rows, events };
+    }) ?? { rows: [], events: [] }
+  );
+}

@@ -157,6 +157,31 @@ CREATE TABLE IF NOT EXISTS buzz (
     PRIMARY KEY (symbol, as_of)
 );
 
+-- Live record (engine/signals/live.py). NOT rebuilt: it only grows, one row per setup from the day it fired.
+CREATE TABLE IF NOT EXISTS setup_log (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol      TEXT NOT NULL,
+    tf          TEXT NOT NULL,     -- D | W
+    pattern     TEXT NOT NULL,
+    side        TEXT NOT NULL,     -- long | short
+    signal_date TEXT NOT NULL,     -- the bar the setup fired on (a week is dated by its first day)
+    logged_on   TEXT NOT NULL,     -- latest daily bar when it was logged; levels are frozen from then on
+    ref_entry REAL, stop REAL, target REAL, detail TEXT,
+    status      TEXT NOT NULL,     -- waiting | skipped | open | target | stop | time
+    entry_date TEXT, entry REAL, exit_date TEXT, exit REAL,
+    r           REAL,              -- closed result in R after costs and slippage
+    best_r      REAL,              -- furthest the price went in the trade's favour, in R (before costs)
+    last_date TEXT, last_close REAL,
+    UNIQUE (symbol, tf, pattern, signal_date)
+);
+CREATE TABLE IF NOT EXISTS setup_events (
+    log_id INTEGER NOT NULL REFERENCES setup_log (id),
+    date   TEXT NOT NULL,          -- the bar it happened on
+    event  TEXT NOT NULL,          -- new | entered | skipped | working | target | stop | time
+    sent   INTEGER NOT NULL DEFAULT 0,  -- 1 once included in a Telegram alert
+    UNIQUE (log_id, event)
+);
+
 CREATE TABLE IF NOT EXISTS ingest_log (
     id     INTEGER PRIMARY KEY AUTOINCREMENT,
     step   TEXT NOT NULL,

@@ -1,7 +1,7 @@
 """One entry point for cron.
 
     python -m engine.run_daily              # incremental: last ~10 days
-    python -m engine.run_daily --backfill   # first run: 2 years of history
+    python -m engine.run_daily --backfill   # first run: 10 years of history
     python -m engine.run_daily --only fii_dii
 """
 import argparse
@@ -11,13 +11,14 @@ import traceback
 from engine import db
 from engine.ingest import fii_dii, instruments, market_series, prices
 from engine import summary
+from engine.signals import live
 from engine.signals import run as signals
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--backfill", action="store_true", help="fetch 10 years instead of ~10 days")
-    ap.add_argument("--only", choices=["instruments", "prices", "market_series", "fii_dii", "signals", "summary"])
+    ap.add_argument("--only", choices=["instruments", "prices", "market_series", "fii_dii", "signals", "live", "summary"])
     ap.add_argument("--notify", action="store_true", help="show a macOS notification with the brief when done")
     args = ap.parse_args()
     period = "10y" if args.backfill else "10d"
@@ -29,6 +30,7 @@ def main() -> int:
         "market_series": lambda: market_series.run(conn, period),
         "fii_dii": lambda: fii_dii.run(conn),
         "signals": lambda: signals.run(conn),  # after prices: reads prices_daily
+        "live": lambda: live.run(conn),        # after signals: logs today's setups, follows earlier ones
         "summary": lambda: summary.run(conn),  # last: reads everything above
     }
     if args.only:
